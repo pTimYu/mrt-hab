@@ -83,6 +83,6 @@ float gyro_dps_from_raw(int16_t g) {
   return g * 70.0f / 1000.0f;
 }
 
-float temp_c_from_raw(int16_t t) {
-  return 25.0f + t / 16.0f;
+float temp_c_from_raw(int16_t t_raw) {
+  return ((float)t_raw / 256.0f) + 25.0f;
 }

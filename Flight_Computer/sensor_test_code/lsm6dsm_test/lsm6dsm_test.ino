@@ -35,15 +35,16 @@ void loop() {
   float temp_c = temp_c_from_raw(t);
 
   // ===== Serial Plotter format =====
-  Serial.print("Ax(m/s^2)="); Serial.print(ax_ms2, 3);
-  Serial.print(" Ay(m/s^2)="); Serial.print(ay_ms2, 3);
-  Serial.print(" Az(m/s^2)="); Serial.print(az_ms2, 3);
+  Serial.print("Ax:"); Serial.print(ax_ms2, 3);
+  Serial.print("\tAy:"); Serial.print(ay_ms2, 3);
+  Serial.print("\tAz:"); Serial.print(az_ms2, 3);
 
-  Serial.print(" Gx(dps)="); Serial.print(gx_dps, 2);
-  Serial.print(" Gy(dps)="); Serial.print(gy_dps, 2);
-  Serial.print(" Gz(dps)="); Serial.print(gz_dps, 2);
+  Serial.print("\tGx:"); Serial.print(gx_dps, 2);
+  Serial.print("\tGy:"); Serial.print(gy_dps, 2);
+  Serial.print("\tGz:"); Serial.print(gz_dps, 2);
+  
+  Serial.print("\tTemp:"); Serial.println(temp_c, 2);
 
-  Serial.print(" Temp(C)="); Serial.print(temp_c, 2);
 
   Serial.println();
   delay(50); // ~20 Hz
