@@ -1,211 +1,182 @@
 #include <Arduino.h>
-#include <U8x8lib.h>
 #include <SoftwareSerial.h>
-#include <stdarg.h>
 
-#define NODE_SLAVE
+#define ROLE_RECEIVER     // ← uncomment on receiver
 
-U8X8_SSD1306_128X64_NONAME_HW_I2C u8x8(/*reset=*/U8X8_PIN_NONE);
+#define LORA_RX 2
+#define LORA_TX 7   
+SoftwareSerial LoRa(LORA_RX, LORA_TX);
 
-#define LORA_RX 2   // Arduino 接收 LoRa TX
-#define LORA_TX 7   // Arduino 发送 LoRa RX
-SoftwareSerial LoRaSerial(LORA_RX, LORA_TX); // RX, TX
+char buf[256];
 
-static char recv_buf[512];
-static bool is_exist = false;
-
-// 用于模仿 Serial1.printf 功能
-void LoRaPrintf(const char *fmt, ...) {
-    char buf[128];
-    va_list args;
-    va_start(args, fmt);
-    vsnprintf(buf, sizeof(buf), fmt, args);
-    va_end(args);
-    LoRaSerial.print(buf);
-    Serial.print(buf);
+/* ---------- UTILITY: ASCII STRING TO HEX ---------- */
+// Converts ASCII string to hex representation
+// Example: "23.5" -> "32332E35"
+void stringToHex(const char* input, char* output) {
+  int j = 0;
+  for (int i = 0; input[i] != '\0'; i++) {
+    sprintf(&output[j], "%02X", (unsigned char)input[i]);
+    j += 2;
+  }
+  output[j] = '\0';
 }
 
-static int at_send_check_response(char *p_ack, int timeout_ms, char *p_cmd, ...) {
-    int ch = 0;
-    int index = 0;
-    unsigned long startMillis = 0;
-    va_list args;
-    memset(recv_buf, 0, sizeof(recv_buf));
-
-    char cmd_buf[128];
-    va_start(args, p_cmd);
-    vsnprintf(cmd_buf, sizeof(cmd_buf), p_cmd, args);
-    va_end(args);
-
-    LoRaSerial.print(cmd_buf);
-    Serial.print(cmd_buf);
-    delay(200);
-    startMillis = millis();
-
-    if (p_ack == NULL)
-        return 0;
-
-    do {
-        while (LoRaSerial.available() > 0) {
-            ch = LoRaSerial.read();
-            recv_buf[index++] = ch;
-            Serial.print((char)ch);
-            delay(2);
-        }
-
-        if (strstr(recv_buf, p_ack) != NULL)
-            return 1;
-
-    } while (millis() - startMillis < (unsigned long)timeout_ms);
-    return 0;
+/* ---------- UTILITY: HEX TO ASCII STRING ---------- */
+// Converts hex representation back to ASCII string
+// Example: "32332E35" -> "23.5"
+void hexToString(const char* input, char* output) {
+  int len = strlen(input);
+  int j = 0;
+  for (int i = 0; i < len; i += 2) {
+    char hexByte[3] = {input[i], input[i+1], '\0'};
+    output[j++] = (char)strtol(hexByte, NULL, 16);
+  }
+  output[j] = '\0';
 }
 
-static int recv_prase(void) {
-    char ch;
-    int index = 0;
-    memset(recv_buf, 0, sizeof(recv_buf));
+/* ---------- SEND AT COMMAND ---------- */
+void sendAT(const char *cmd) {
+  LoRa.print(cmd);
+  Serial.print(cmd);
+}
 
-    while (LoRaSerial.available() > 0) {
-        ch = LoRaSerial.read();
-        recv_buf[index++] = ch;
-        Serial.print((char)ch);
+bool waitFor(const char *keyword, unsigned long timeout) {
+  unsigned long start = millis();
+  int i = 0;
+  memset(buf, 0, sizeof(buf));
+  
+  while (millis() - start < timeout) {
+    while (LoRa.available()) {
+      if (i < 255) {
+        buf[i++] = LoRa.read();
+        Serial.print(buf[i-1]);
         delay(2);
+      } else {
+        LoRa.read();  // discard overflow
+      }
     }
-
-    if (index) {
-        char *p_start = NULL;
-        char data[32] = {0};
-        int rssi = 0;
-        int snr = 0;
-
-        p_start = strstr(recv_buf, "+TEST: RX \"5345454544");
-        if (p_start) {
-            p_start = strstr(recv_buf, "5345454544");
-            if (p_start && (1 == sscanf(p_start, "5345454544%s", data))) {
-                data[4] = 0;
-                u8x8.setCursor(0, 4);
-                u8x8.print("               ");
-                u8x8.setCursor(2, 4);
-                u8x8.print("RX: 0x");
-                u8x8.print(data);
-                Serial.print(data);
-                Serial.print("\r\n");
-            }
-
-            p_start = strstr(recv_buf, "RSSI:");
-            if (p_start && (1 == sscanf(p_start, "RSSI:%d,", &rssi))) {
-                u8x8.setCursor(0, 6);
-                u8x8.print("                ");
-                u8x8.setCursor(2, 6);
-                u8x8.print("rssi:");
-                u8x8.print(rssi);
-            }
-            p_start = strstr(recv_buf, "SNR:");
-            if (p_start && (1 == sscanf(p_start, "SNR:%d", &snr))) {
-                u8x8.setCursor(0, 7);
-                u8x8.print("                ");
-                u8x8.setCursor(2, 7);
-                u8x8.print("snr :");
-                u8x8.print(snr);
-            }
-            return 1;
-        }
-    }
-    return 0;
+    if (strstr(buf, keyword)) return true;
+  }
+  return false;
 }
 
-static int node_recv(uint32_t timeout_ms) {
-    at_send_check_response("+TEST: RXLRPKT", 1000, "AT+TEST=RXLRPKT\r\n");
-    unsigned long startMillis = millis();
-    do {
-        if (recv_prase())
-            return 1;
-    } while (millis() - startMillis < timeout_ms);
-    return 0;
+/* ---------- INITIALIZE LORA ---------- */
+bool initLoRa() {
+  sendAT("AT\r\n");
+  if (!waitFor("+AT: OK", 500)) return false;
+  
+  sendAT("AT+MODE=TEST\r\n");
+  waitFor("+MODE: TEST", 500);
+  
+  sendAT("AT+TEST=RFCFG,866,SF12,125,12,15,14,ON,OFF,OFF\r\n");
+  waitFor("+TEST: RFCFG", 500);
+  
+  return true;
 }
 
-static int node_send(void) {
-    static uint16_t count = 0;
-    int ret = 0;
-    char data[32];
-    char cmd[128];
+/* ---------- SEND STRING DATA ---------- */
+void sendString(const char* data) {
+  char hexPayload[128];
+  char cmd[256];
+  
+  // Convert ASCII string to hex
+  stringToHex(data, hexPayload);
+  
+  // Build AT command
+  sprintf(cmd, "AT+TEST=TXLRPKT,\"%s\"\r\n", hexPayload);
+  
+  Serial.print("Sending: ");
+  Serial.println(data);
+  
+  sendAT(cmd);
+  
+  if (waitFor("TX DONE", 2000)) {
+    Serial.println("✓ Sent successfully\n");
+  } else {
+    Serial.println("✗ Send failed\n");
+  }
+}
 
-    memset(data, 0, sizeof(data));
-    sprintf(data, "%04X", count);
-    sprintf(cmd, "AT+TEST=TXLRPKT,\"5345454544%s\"\r\n", data);
-
-    u8x8.setCursor(0, 3);
-    u8x8.print("                ");
-    u8x8.setCursor(2, 3);
-    u8x8.print("TX: 0x");
-    u8x8.print(data);
-
-    ret = at_send_check_response("TX DONE", 2000, cmd);
-    if (ret == 1) {
-        count++;
-        Serial.print("Sent successfully!\r\n");
-    } else {
-        Serial.print("Send failed!\r\n");
+/* ---------- RECEIVE STRING DATA ---------- */
+void receiveString() {
+  sendAT("AT+TEST=RXLRPKT\r\n");
+  
+  if (waitFor("+TEST: RXLRPKT", 1000)) {
+    Serial.println("RX mode active, waiting for packet...");
+  }
+  
+  if (waitFor("+TEST: RX", 5000)) {
+    Serial.println("\n✓ Packet received!");
+    Serial.println("Raw response:");
+    Serial.println(buf);
+    
+    // Extract hex payload between quotes
+    char* start = strchr(buf, '"');
+    if (start) {
+      start++;  // move past opening quote
+      char* end = strchr(start, '"');
+      if (end) {
+        *end = '\0';  // null-terminate at closing quote
+        
+        // Convert hex back to ASCII string
+        char decodedString[128];
+        hexToString(start, decodedString);
+        
+        Serial.print("\nDecoded string: ");
+        Serial.println(decodedString);
+        Serial.println("-------------------\n");
+      }
     }
-    return ret;
+  } else {
+    Serial.println("✗ No packet received (timeout)\n");
+  }
 }
 
-static void node_recv_then_send(uint32_t timeout) {
-    if (node_recv(timeout))
-        node_send();
-    Serial.print("\r\n");
-}
-
-static void node_send_then_recv(uint32_t timeout) {
-    if (!node_send()) {
-        Serial.print("\r\n");
-        return;
-    }
-    if (!node_recv(timeout)) {
-        Serial.print("recv timeout!\r\n");
-    }
-    Serial.print("\r\n");
-}
-
-void setup(void) {
-    u8x8.begin();
-    u8x8.setFlipMode(1);
-    u8x8.setFont(u8x8_font_chroma48medium8_r);
-
-    Serial.begin(115200);
-    LoRaSerial.begin(9600);
-
-    Serial.print("ping pong communication!\r\n");
-    u8x8.setCursor(0, 0);
-
-    if (at_send_check_response("+AT: OK", 100, "AT\r\n")) {
-        is_exist = true;
-        at_send_check_response("+MODE: TEST", 1000, "AT+MODE=TEST\r\n");
-        at_send_check_response("+TEST: RFCFG", 1000,
-                               "AT+TEST=RFCFG,866,SF12,125,12,15,14,ON,OFF,OFF\r\n");
-        delay(200);
-#ifdef NODE_SLAVE
-        u8x8.setCursor(5, 0);
-        u8x8.print("slave");
+/* ---------- SETUP ---------- */
+void setup() {
+  Serial.begin(115200);
+  LoRa.begin(9600);
+  
+  delay(1000);
+  Serial.println("\n=== LoRa String Communication ===\n");
+  
+  if (!initLoRa()) {
+    Serial.println("LoRa module not found!");
+    while (1);
+  }
+  
+#ifdef ROLE_RECEIVER
+  Serial.println("Mode: RECEIVER\n");
 #else
-        u8x8.setCursor(5, 0);
-        u8x8.print("master");
+  Serial.println("Mode: TRANSMITTER\n");
 #endif
-    } else {
-        is_exist = false;
-        Serial.print("No E5 module found.\r\n");
-        u8x8.setCursor(0, 1);
-        u8x8.print("unfound E5 !");
-    }
 }
 
-void loop(void) {
-    if (is_exist) {
-#ifdef NODE_SLAVE
-        node_recv_then_send(2000);
+/* ---------- LOOP ---------- */
+void loop() {
+#ifdef ROLE_RECEIVER
+  receiveString();
+  
 #else
-        node_send_then_recv(2000);
-        delay(3000);
+  // Example: sending different types of string data
+  static int counter = 0;
+  
+  switch(counter % 4) {
+    case 0:
+      sendString("23.5");      // float as string
+      break;
+    case 1:
+      sendString("42");        // int as string
+      break;
+    case 2:
+      sendString("OK");        // status message
+      break;
+    case 3:
+      sendString("Temp:25.3"); // formatted data
+      break;
+  }
+  
+  counter++;
+  delay(5000);  // send every 5 seconds
 #endif
-    }
 }
