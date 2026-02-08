@@ -41,28 +41,27 @@ static int16_t le16(const uint8_t *p) {
 }
 
 /* ===== public API ===== */
-bool lsm6_init_minimal() {
+bool lsm6_init_minimal(uint8_t i2c_addr) {
   uint8_t who = 0;
-  if (!i2cRead(LSM6_ADDR, REG_WHO_AM_I, &who, 1)) {
+  if (!i2cRead(i2c_addr, REG_WHO_AM_I, &who, 1)) {
     return false;
   }
 
-  i2cWrite8(LSM6_ADDR, REG_CTRL3_C, CTRL3_SW_RESET);
+  i2cWrite8(i2c_addr, REG_CTRL3_C, CTRL3_SW_RESET);
   delay(50);
 
-  i2cWrite8(LSM6_ADDR, REG_CTRL3_C, CTRL3_BDU | CTRL3_IF_INC);
-  i2cWrite8(LSM6_ADDR, REG_CTRL1_XL, 0x40);
-  i2cWrite8(LSM6_ADDR, REG_CTRL2_G,  0x4C);
+  i2cWrite8(i2c_addr, REG_CTRL3_C, CTRL3_BDU | CTRL3_IF_INC);
+  i2cWrite8(i2c_addr, REG_CTRL1_XL, 0x40);
+  i2cWrite8(i2c_addr, REG_CTRL2_G,  0x4C);
 
   return true;
 }
 
-
 bool lsm6_read_raw(int16_t &ax, int16_t &ay, int16_t &az,
                    int16_t &gx, int16_t &gy, int16_t &gz,
-                   int16_t &t) {
+                   int16_t &t, uint8_t i2c_addr) {
   uint8_t buf[14];
-  if (!i2cRead(LSM6_ADDR, REG_OUT_TEMP_L, buf, 14)) return false;
+  if (!i2cRead(i2c_addr, REG_OUT_TEMP_L, buf, 14)) return false;
 
   t  = le16(&buf[0]);
   gx = le16(&buf[2]);

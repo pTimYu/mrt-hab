@@ -1,6 +1,8 @@
 #include <Wire.h>
 #include "lsm6dsm_minimal.h"
 
+static const uint8_t LSM6_ADDR = 0x6B;  // LSM I2C Address
+
 void setup() {
   Serial.begin(115200);
   delay(1000);
@@ -8,18 +10,16 @@ void setup() {
   Wire.begin();
   Wire.setClock(100000);
 
-  if (!lsm6_init_minimal()) {
+  if (!lsm6_init_minimal(LSM6_ADDR)) {
     Serial.println("LSM6 init FAILED");
     while (1) delay(1000);
   }
-
 }
 
 void loop() {
   int16_t ax, ay, az, gx, gy, gz, t;
 
-  if (!lsm6_read_raw(ax, ay, az, gx, gy, gz, t)) {
-    // Plotter 模式下，出错时最好什么都不打印
+  if (!lsm6_read_raw(ax, ay, az, gx, gy, gz, t, LSM6_ADDR)) {
     delay(50);
     return;
   }
@@ -44,7 +44,6 @@ void loop() {
   Serial.print("\tGz:"); Serial.print(gz_dps, 2);
   
   Serial.print("\tTemp:"); Serial.println(temp_c, 2);
-
 
   Serial.println();
   delay(50); // ~20 Hz
