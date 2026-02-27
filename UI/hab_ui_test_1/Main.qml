@@ -1,6 +1,7 @@
-import QtQuick 2.15
-import QtQuick.Controls 2.15
-import QtQuick.Layouts 1.15
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
+import QtQml
 
 ApplicationWindow {
     id: root
@@ -42,18 +43,37 @@ ApplicationWindow {
         TabBar {
             id: mainTabBar
             Layout.fillWidth: true
-            z: 2 // Keep it on top of content to ensure clicks work
 
-            TabButton { text: "DASHBOARD" }
-            Rectangle { width: 2; height: mainTabBar.height * 0.6; color: "#444444" }
+            background: Rectangle {
+                color: "#cfcfcf"   // grey strip behind tabs
+            }
 
-            TabButton { text: "RAW DATA CONSOLE" }
-            Rectangle { width: 2; height: mainTabBar.height * 0.6; color: "#444444" }
+            TabButton {
+                text: qsTr("Dashboard")
 
-            TabButton { text: "MAP" }
-            Rectangle { width: 2; height: mainTabBar.height * 0.6; color: "#444444" }
+                background: Rectangle {
+                    color: bar.currentIndex === 0 ? "#e0e0e0" : "#cfcfcf"
+                    border.color: "#999999"
+                }
+            }
 
-            background: Rectangle { color: "#1e1e26" }
+            TabButton {
+                text: qsTr("Console Log")
+
+                background: Rectangle {
+                    color: bar.currentIndex === 1 ? "#e0e0e0" : "#cfcfcf"
+                    border.color: "#999999"
+                }
+            }
+
+            TabButton {
+                text: qsTr("Map")
+
+                background: Rectangle {
+                    color: bar.currentIndex === 2 ? "#e0e0e0" : "#cfcfcf"
+                    border.color: "#999999"
+                }
+            }
         }
 
         // 2. Content Area
@@ -65,7 +85,6 @@ ApplicationWindow {
             // --- PAGE 1: DASHBOARD ---
             ColumnLayout {
                 id: dashboardPage
-                // FIX 2: Remove anchors.fill! Use Layout properties instead.
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 Layout.margins: 20
@@ -77,16 +96,35 @@ ApplicationWindow {
                     Layout.rightMargin: 20
                     spacing: 20
                     MetricCard {
-                        label: "COORDINATES"
+                        label: "Coodinates"
                         value: currentLat.toFixed(5) + " N"
-                        iconColor: "#fab387"; Layout.fillWidth: true
+                        iconColor: '#39C5BB'; Layout.fillWidth: true
                     }
                     MetricCard {
-                        label: "RADIO GAIN"
+                        label: "Radio Gain"
                         value: currentRssi + " dBm"
                         iconColor: currentRssi > -95 ? "#00ff9d" : "#ff4b2b"; Layout.fillWidth: true
                     }
                 }
+
+                // Need to change the variable 
+                RowLayout {
+                    Layout.topMargin: 30
+                    Layout.leftMargin: 20
+                    Layout.rightMargin: 20
+                    spacing: 20
+                    MetricCard {
+                        label: "Height"
+                        value: currentLat.toFixed(5) + " m"
+                        iconColor: "#39C5BB"; Layout.fillWidth: true
+                    }
+                    MetricCard {
+                        label: "Battery Voltage"
+                        value: currentRssi + " V"
+                        iconColor: "#39C5BB"; Layout.fillWidth: true
+                    }
+                }
+
 
                 Item { Layout.fillHeight: true }
             }
