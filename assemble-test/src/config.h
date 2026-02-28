@@ -19,6 +19,10 @@
 // GYRO_FS_250, GYRO_FS_500, GYRO_FS_1000, GYRO_FS_2000
 #define IMU_GYRO_RANGE      GYRO_FS_2000
 
+// Radio
+#define received_bin 200
+#define received_bytes 25 // The byte number we will have for the
+#define received_decimal 60 // The converted decimal place
 
 // SYSTEM
 #define SERIAL_BAUD         115200
