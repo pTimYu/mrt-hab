@@ -1,5 +1,5 @@
 #include "lsm6dsm_sensor.h"
-#include "config.h"
+#include "../config.h"
 
 bool imu_init() {
     return lsm6_init_minimal(IMU_I2C_ADDR, IMU_ACCEL_RANGE, IMU_GYRO_RANGE);

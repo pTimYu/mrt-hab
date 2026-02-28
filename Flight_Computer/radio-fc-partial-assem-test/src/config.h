@@ -1,5 +1,3 @@
-// Parameters Configuration Setup
-
 #pragma once
 
 // I2C(General)

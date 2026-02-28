@@ -1,13 +1,4 @@
-// Arduino Dependents
-
-// Sensor Dependents
-#include <Wire.h>
-#include "bmp390_sensor.h"
-#include "lsm6dsm_sensor.h"
-
-// Data and Parameter
-#include "data_extractor.h"
-#include "config.h"
+#include "module.h"
 
 // Data Structures
 DataSet data_set;
@@ -37,6 +28,6 @@ void setup() {
 }
 
 void loop() {
-
+    data_extractor(data_set);
     delay(LOOP_DELAY_MS);
 }

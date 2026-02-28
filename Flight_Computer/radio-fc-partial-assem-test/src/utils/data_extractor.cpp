@@ -1,14 +1,7 @@
-// Dependent Library
-#include <Wire.h>
-#include "bmp390_sensor.h"
-#include "lsm6dsm_sensor.h"
-
-// Parameters
-#include "config.h"
-
 // Head
 #include "data_extractor.h"
-
+#include "../sensors/bmp390_sensor.h"
+#include "../sensors/lsm6dsm_sensor.h"
 
 void data_extractor(DataSet& data){
     // Sensor Structures

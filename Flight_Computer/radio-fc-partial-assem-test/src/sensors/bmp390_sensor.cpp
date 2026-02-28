@@ -1,5 +1,5 @@
 #include "bmp390_sensor.h"
-#include "config.h"
+#include "../config.h"
 
 static Adafruit_BMP3XX bmp;
 
