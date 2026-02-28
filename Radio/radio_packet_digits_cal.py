@@ -7,17 +7,19 @@ name = ["Time",
         "Latitude", "Longitude",
         "GPS Speed", "GPS Heading",
         "Height",
-        "Acceleration X", "Acceleration Y", "Acceleration Z",
-        "Pitch", "Row", "Yaw"]
+        "Voltage",
+        "RSSI", "Gain",
+        "Acceleration X", "Acceleration Y", "Acceleration Z"]
 
 digits = [4,
           9, 9,
           3, 3,
           5,
-          6, 6, 6,
+          3,
+          3, 3,
           6, 6, 6]
 
-print(f"Total digits: {sum(digits)}\n")
+print(f"Total digits (decimal): {sum(digits)}\n")
 
 print("Digits Breakdown:")
 i = 0
