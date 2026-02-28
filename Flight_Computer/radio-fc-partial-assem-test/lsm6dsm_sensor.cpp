@@ -1,4 +1,4 @@
-#include "imu_sensor.h"
+#include "lsm6dsm_sensor.h"
 #include "config.h"
 
 bool imu_init() {
