@@ -45,33 +45,58 @@ ApplicationWindow {
             Layout.fillWidth: true
 
             background: Rectangle {
-                color: "#cfcfcf"   // grey strip behind tabs
+                color: "#cfcfcf"
             }
 
             TabButton {
                 text: qsTr("Dashboard")
-
                 background: Rectangle {
-                    color: bar.currentIndex === 0 ? "#e0e0e0" : "#cfcfcf"
-                    border.color: "#999999"
+                    color: mainTabBar.currentIndex === 0 ? "#ffffff" : '#76cfcfcf'
+                    border.color: mainTabBar.currentIndex === 0 ? "#39C5BB" : "#999999"
+                    border.width: mainTabBar.currentIndex === 0 ? 2 : 1
+
+                    // Accent underline indicator
+                    Rectangle {
+                        anchors.bottom: parent.bottom
+                        width: parent.width
+                        height: 3
+                        color: "#39C5BB"
+                        visible: mainTabBar.currentIndex === 0
+                    }
                 }
             }
 
             TabButton {
                 text: qsTr("Console Log")
-
                 background: Rectangle {
-                    color: bar.currentIndex === 1 ? "#e0e0e0" : "#cfcfcf"
-                    border.color: "#999999"
+                    color: mainTabBar.currentIndex === 1 ? "#ffffff" : "#cfcfcf"
+                    border.color: mainTabBar.currentIndex === 1 ? "#39C5BB" : "#999999"
+                    border.width: mainTabBar.currentIndex === 1 ? 2 : 1
+
+                    Rectangle {
+                        anchors.bottom: parent.bottom
+                        width: parent.width
+                        height: 3
+                        color: "#39C5BB"
+                        visible: mainTabBar.currentIndex === 1
+                    }
                 }
             }
 
             TabButton {
                 text: qsTr("Map")
-
                 background: Rectangle {
-                    color: bar.currentIndex === 2 ? "#e0e0e0" : "#cfcfcf"
-                    border.color: "#999999"
+                    color: mainTabBar.currentIndex === 2 ? "#ffffff" : "#cfcfcf"
+                    border.color: mainTabBar.currentIndex === 2 ? "#39C5BB" : "#999999"
+                    border.width: mainTabBar.currentIndex === 2 ? 2 : 1
+
+                    Rectangle {
+                        anchors.bottom: parent.bottom
+                        width: parent.width
+                        height: 3
+                        color: "#39C5BB"
+                        visible: mainTabBar.currentIndex === 2
+                    }
                 }
             }
         }
@@ -83,6 +108,7 @@ ApplicationWindow {
             currentIndex: mainTabBar.currentIndex
 
             // --- PAGE 1: DASHBOARD ---
+            // Currently, every variables are the placeholder.
             ColumnLayout {
                 id: dashboardPage
                 Layout.fillWidth: true
@@ -90,38 +116,120 @@ ApplicationWindow {
                 Layout.margins: 20
                 spacing: 20
 
-                RowLayout {
-                    Layout.topMargin: 30
+                // Need to change the variable 
+                // --- General Section ---
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    Layout.topMargin: 20
                     Layout.leftMargin: 20
                     Layout.rightMargin: 20
-                    spacing: 20
-                    MetricCard {
-                        label: "Coodinates"
-                        value: currentLat.toFixed(5) + " N"
-                        iconColor: '#39C5BB'; Layout.fillWidth: true
+                    spacing: 10
+
+                    Text {
+                        text: "⬡  General"
+                        color: "#39C5BB"
+                        font.pixelSize: 14
+                        font.bold: true
+                        leftPadding: 4
+
+                        // Optional: accent line next to the title
+                        Rectangle {
+                            anchors.left: parent.right
+                            anchors.leftMargin: 8
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 200; height: 1
+                            color: "#39C5BB"
+                            opacity: 0.3
+                        }
                     }
-                    MetricCard {
-                        label: "Radio Gain"
-                        value: currentRssi + " dBm"
-                        iconColor: currentRssi > -95 ? "#00ff9d" : "#ff4b2b"; Layout.fillWidth: true
+
+                    // Divider line
+                    Rectangle { width: parent.width; height: 1; color: "#333333" }
+
+                    RowLayout {
+                        spacing: 20; Layout.fillWidth: true
+                        MetricCard { label: "Latitude"; value: currentLat.toFixed(5) + " N"; iconColor: '#39C5BB'; Layout.fillWidth: true }
+                        MetricCard { label: "Longitude"; value: currentLat.toFixed(5) + " W"; iconColor: '#39C5BB'; Layout.fillWidth: true }
+                        MetricCard { label: "Altitude";    value: currentLat.toFixed(1) + " m";  iconColor: "#39C5BB"; Layout.fillWidth: true }
+                        MetricCard { label: "GPS Speed";   value: "12.4 m/s";                    iconColor: "#39C5BB"; Layout.fillWidth: true }
+                        MetricCard { label: "Heading";     value: "274 °";                       iconColor: "#39C5BB"; Layout.fillWidth: true }
+                        MetricCard { label: "Battery";    value: "3.87 V";             iconColor: "#ffb347"; Layout.fillWidth: true }
                     }
                 }
 
-                // Need to change the variable 
-                RowLayout {
-                    Layout.topMargin: 30
+                // --- IMU Section ---
+                ColumnLayout {
+                    Layout.fillWidth: true
                     Layout.leftMargin: 20
                     Layout.rightMargin: 20
-                    spacing: 20
-                    MetricCard {
-                        label: "Height"
-                        value: currentLat.toFixed(5) + " m"
-                        iconColor: "#39C5BB"; Layout.fillWidth: true
+                    spacing: 10
+
+                    Text {
+                        text: "⬡  IMU"
+                        color: "#bb93ff"
+                        font.pixelSize: 14
+                        font.bold: true
+                        leftPadding: 4
+
+                        Rectangle {
+                            anchors.left: parent.right
+                            anchors.leftMargin: 8
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 200; height: 1
+                            color: "#bb93ff"
+                            opacity: 0.3
+                        }
                     }
-                    MetricCard {
-                        label: "Battery Voltage"
-                        value: currentRssi + " V"
-                        iconColor: "#39C5BB"; Layout.fillWidth: true
+
+                    Rectangle { width: parent.width; height: 1; color: "#333333" }
+
+                    // Acceleration
+                    RowLayout {
+                        spacing: 20; Layout.fillWidth: true
+                        MetricCard { label: "Accel X"; value: "0.12 g";  iconColor: "#bb93ff"; Layout.fillWidth: true }
+                        MetricCard { label: "Accel Y"; value: "-0.03 g"; iconColor: "#bb93ff"; Layout.fillWidth: true }
+                        MetricCard { label: "Accel Z"; value: "9.81 g";  iconColor: "#bb93ff"; Layout.fillWidth: true }
+                    }
+                    
+                    // Gyro (Not suppose to deploy for the first test)
+                    // RowLayout{
+                    //     spacing: 20; Layout.fillWidth: true
+                    //     MetricCard { label: "Gyro X"; value: "0.12 g";  iconColor: "#bb93ff"; Layout.fillWidth: true }
+                    //     MetricCard { label: "Gyro Y"; value: "-0.03 g"; iconColor: "#bb93ff"; Layout.fillWidth: true }
+                    //     MetricCard { label: "Gyro Z"; value: "9.81 g";  iconColor: "#bb93ff"; Layout.fillWidth: true }
+                    // }
+                }
+
+                // --- Radio Section ---
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    Layout.leftMargin: 20
+                    Layout.rightMargin: 20
+                    spacing: 10
+
+                    Text {
+                        text: "⬡  Radio"
+                        color: "#ffb347"
+                        font.pixelSize: 14
+                        font.bold: true
+                        leftPadding: 4
+
+                        Rectangle {
+                            anchors.left: parent.right
+                            anchors.leftMargin: 8
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 200; height: 1
+                            color: "#ffb347"
+                            opacity: 0.3
+                        }
+                    }
+
+                    Rectangle { width: parent.width; height: 1; color: "#333333" }
+
+                    RowLayout {
+                        spacing: 20; Layout.fillWidth: true
+                        MetricCard { label: "RSSI";       value: currentRssi + " dBm"; iconColor: currentRssi > -95 ? "#00ff9d" : "#ff4b2b"; Layout.fillWidth: true }
+                        MetricCard { label: "Radio Gain"; value: radioGain + " dB";    iconColor: "#ffb347"; Layout.fillWidth: true }
                     }
                 }
 
@@ -178,6 +286,9 @@ ApplicationWindow {
         }
     }
 
+
+
+
     // --- Reusable Components ---
     Component {
         id: logDelegate
@@ -198,11 +309,11 @@ ApplicationWindow {
 
     component MetricCard : Rectangle {
         property string label: ""; property string value: ""; property color iconColor: "white"
-        height: 120; color: "#1e1e26"; radius: 10; border.color: "#333333"
+        height: 80; color: "#1e1e26"; radius: 10; border.color: "#333333"
         Column {
             anchors.centerIn: parent; spacing: 8
-            Text { text: label; color: "#888888"; font.pixelSize: 12; anchors.horizontalCenter: parent.horizontalCenter }
-            Text { text: value; color: iconColor; font.pixelSize: 28; font.bold: true; anchors.horizontalCenter: parent.horizontalCenter }
+            Text { text: label; color: "#888888"; font.pixelSize: 14; anchors.horizontalCenter: parent.horizontalCenter }
+            Text { text: value; color: iconColor; font.pixelSize: 22; font.bold: true; anchors.horizontalCenter: parent.horizontalCenter }
         }
     }
 }
