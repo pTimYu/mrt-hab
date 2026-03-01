@@ -8,16 +8,14 @@ name = ["Time",
         "GPS Speed", "GPS Heading",
         "Height",
         "Voltage",
-        "RSSI", "Gain",
         "Acceleration X", "Acceleration Y", "Acceleration Z"]
 
-digits = [4,
+digits = [6,
           9, 9,
           3, 3,
-          5,
+          6,
           3,
-          3, 3,
-          6, 6, 6]
+          5, 5, 5]
 
 print(f"Total digits (decimal): {sum(digits)}\n")
 
@@ -33,6 +31,6 @@ print(f"\nBinary number: {bin_number}")
 print(f"Byte number: {byte_number}")
 
 time_on_air_ascii = sum(digits) / 28 ## Estimated time on air time (reduced model)
-time_on_air_bin = sum(digits) * byte_number / 28
+time_on_air_bin = byte_number / 28
 print(f"\nTime-on-air by using ASCII: {time_on_air_ascii}s")
 print(f"Time-on-air by using Binary Number: {time_on_air_bin}s")
