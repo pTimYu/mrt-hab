@@ -49,10 +49,10 @@
 
 // ── Pins ──────────────────────────────────────────────────────────────────────
 // NOTE: On Seeed nRF52840 Sense, LEDs are active-LOW (HIGH = off, LOW = on)
-#define ACTUATOR_PIN_1      9
-#define ACTUATOR_PIN_2      10
-#define BUZZER_PIN          3
-#define SD_CS_PIN           9
+#define ACTUATOR_PIN_1      6
+#define ACTUATOR_PIN_2      7
+#define BUZZER_PIN          2
+#define SD_CS_PIN           4
 
 // LED pins — Arduino Nano ESP32 board package defines LEDR / LEDG / LEDB
 // as constexpr variables in pins_arduino.h.  They are active-LOW
