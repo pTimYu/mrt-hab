@@ -2,16 +2,20 @@
 #include "../config.h"
 #include "../sensors/bmp390_sensor.h"
 #include "../sensors/lsm6dsm_sensor.h"
+#include "../sensors/adafruit_gps.h"
 
 // ── Sentinel values written on sensor failure ─────────────────────────────────
 // Using NaN would be ideal but causes issues with some loggers/parsers.
 // Using out-of-range constants makes failures obvious in post-flight data.
 // These are deliberately impossible real-world values.
-static const float SENTINEL_ALTITUDE     =  9999.0f;  // m  — BMP failed
+static const float SENTINEL_ALTITUDE     = 99999.0f;  // m  — BMP or GPS failed
 static const float SENTINEL_TEMPERATURE  =   999.0f;  // °C — BMP failed
 static const float SENTINEL_PRESSURE     =     0.0f;  // hPa — BMP failed
 static const float SENTINEL_ACCEL        =   999.0f;  // m/s² — IMU failed
 static const float SENTINEL_GYRO         =   999.0f;  // °/s  — IMU failed
+static const float SENTINEL_LOCAT        =   999.0f;  // °/s  — GPS failed
+static const float SENTINEL_SPD          =   999.0f;  // °/s  — GPS failed
+static const float SENTINEL_HED          =   999.0f;  // °/s  — GPS failed
 
 void data_extractor(DataSet& data) {
 
@@ -62,7 +66,24 @@ void data_extractor(DataSet& data) {
     // ── GPS ───────────────────────────────────────────────────────────────
     // Placeholder — populate when GPS module is integrated.
     // data.gnss, data.latitude, data.longitude, etc.
-    data.gnss = false;
+    GnssData gnssData;
+    data.time_now = gnssData.time_now;
+    if(gnssData.location_valid){
+        data.latitude = gnssData.latitude;
+        data.longitude = gnssData.longitude;
+    } else{
+        data.latitude = SENTINEL_LOCAT;
+        data.longitude = SENTINEL_LOCAT;
+    }
+    
+    if(gnssData.gps_altitude_valid) data.gps_altitude = gnssData.gps_altitude;
+    else data.altitude = SENTINEL_ALTITUDE;
+
+    if(gnssData.speed_gps_valid) data.speed_gps = gnssData.speed_gps;
+    else data.speed_gps = SENTINEL_SPD;
+
+    if(gnssData.heading_gps_valid) data.heading_gps = gnssData.heading_gps;
+    else data.heading_gps = SENTINEL_HED;
 
     // ── Radio ─────────────────────────────────────────────────────────────
     // Placeholder — populate when LoRa module is integrated.

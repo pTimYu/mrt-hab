@@ -15,7 +15,7 @@
 struct DataSet {
 
     // ── General ───────────────────────────────────────────────────────────
-    int time;          // Effective flight time (ms since takeoff)
+    int      time;          // Effective flight time (ms since takeoff)
     float    voltage;       // Battery voltage (V)
 
     // ── BMP390 ────────────────────────────────────────────────────────────
@@ -30,7 +30,8 @@ struct DataSet {
     float gx, gy, gz;       // Angular rate (°/s)
 
     // ── GPS ───────────────────────────────────────────────────────────────
-    bool  gnss;             // true = fix valid this cycle
+    bool  gps;              // False if at least one data wrong    
+    int   time_now;         // Current time, only have minutes and seconds
     float latitude;         // °
     float longitude;        // °
     float gps_altitude;     // m (MSL)

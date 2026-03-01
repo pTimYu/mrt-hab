@@ -88,7 +88,7 @@ bool data_saver_write(const DataSet& data) {
     // Sensor health flags
     logFile.print(data.bmp  ? 1 : 0);  logFile.print('\t');
     logFile.print(data.imu  ? 1 : 0);  logFile.print('\t');
-    logFile.print(data.gnss ? 1 : 0);
+    logFile.print(data.gps ? 1 : 0);
 
     logFile.println(); // end of row
 

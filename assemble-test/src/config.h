@@ -38,7 +38,12 @@
 // ── LoRa Radio ────────────────────────────────────────────────────────────────
 #define LORA_RX_PIN         2      // MCU RX ← LoRa TX
 #define LORA_TX_PIN         1      // MCU TX → LoRa RX
-#define LORA_BAUD           9600   // SoftwareSerial baud to LoRa module
+#define LORA_BAUD           9600   // HardwareSerial baud to LoRa module
+
+// ── GNSS ──────────────────────────────────────────────────────────────────────
+#define GNSS_RX             8
+#define GNSS_TX             9
+#define GNSS_BAUD           9600
 
 // RF configuration string passed to AT+TEST=RFCFG
 // Format: frequency(MHz),SF,BW(kHz),TxPreamble,RxPreamble,TxPower(dBm),CRC,IQ,NET

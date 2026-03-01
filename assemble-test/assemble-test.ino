@@ -9,6 +9,7 @@
 // Sensors
 #include "src/sensors/bmp390_sensor.h"
 #include "src/sensors/lsm6dsm_sensor.h"
+#include "src/sensors/adafruit_gps.h"
 
 // I/O
 #include "src/io/buzzer.h"
@@ -73,7 +74,7 @@ static size_t pack_telemetry(const DataSet& d, uint8_t* buf) {
     uint8_t flags = 0;
     if (d.bmp)  flags |= 0x01;
     if (d.imu)  flags |= 0x02;
-    if (d.gnss) flags |= 0x04;
+    if (d.gps) flags |= 0x04;
     buf[pos++] = flags;
 
     return pos;  // should be TELEM_PACKET_SIZE
