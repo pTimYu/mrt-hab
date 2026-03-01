@@ -66,7 +66,7 @@ void mapToDataSet(std::string fullDecimal, DataSet& data) {
     data.longitude   = std::stof(getNext(9));  // 9 digits
     data.speed_gps   = std::stof(getNext(3));  // 3 digits
     data.heading_gps = std::stoi(getNext(3));  // 3 digits
-    data.height      = std::stoi(getNext(5));  // 5 digits
+    data.altitude    = std::stoi(getNext(5));  // 5 digits
     data.voltage     = std::stof(getNext(3));  // 3 digits
     data.RSSI        = std::stof(getNext(3));  // 3 digits
     data.Gain        = std::stof(getNext(3));  // 3 digits

@@ -77,7 +77,7 @@ int main() {
             std::cout << "Time:      " << received_data.time << std::endl;
             std::cout << "Lat/Long:  " << received_data.latitude << ", " << received_data.longitude << std::endl;
             std::cout << "Speed/Hdg: " << received_data.speed_gps << " / " << received_data.heading_gps << std::endl;
-            std::cout << "Height:    " << received_data.height << std::endl;
+            std::cout << "Altitude:    " << received_data.altitude << std::endl;
             std::cout << "Voltage:   " << received_data.voltage << "V" << std::endl;
             std::cout << "Accel X/Y/Z: " 
                       << received_data.accel_x << ", " 

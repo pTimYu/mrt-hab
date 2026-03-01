@@ -1,11 +1,13 @@
 #pragma once
 
+#include "serialib.h"
+
 extern serialib serial;
 
 struct DataSet{
     int time;
     float latitude, longitude, speed_gps; int heading_gps; // GPS
-    int height;
+    int altitude;
     float voltage;
     float RSSI, Gain;
     float accel_x, accel_y, accel_z;
