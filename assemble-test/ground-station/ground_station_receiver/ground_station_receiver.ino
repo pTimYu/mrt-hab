@@ -1,21 +1,15 @@
 // ── HAB Ground Station Receiver ───────────────────────────────────────────────
 // Target board: Arduino UNO (ATmega328P)
 //
-// Hardware Serial (pins 0/1) → USB to PC  (binary 25-byte output)
+// Hardware Serial (pins 0/1) → USB to PC
 // SoftwareSerial             → LoRa module (AT commands, 9600 baud)
 //
 // Receives 37-byte binary LoRa telemetry packets from the flight computer,
-// unpacks the data, re-encodes it into the 25-byte big-endian integer format
-// expected by the simple-terminal-visualization program, and sends those
-// 25 bytes over hardware Serial (USB).
+// unpacks the data, and outputs it over hardware Serial (USB).
 //
-// The simple-terminal-visualization expects:
-//   - 25 raw bytes arriving on serial
-//   - Interpreted as a big-endian unsigned integer
-//   - Converted to a 60-digit decimal string
-//   - Mapped to fields:  time(4) lat(9) lon(9) speed(3) heading(3)
-//                         altitude(5) voltage(3) RSSI(3) Gain(3)
-//                         accel_x(6) accel_y(6) accel_z(6)
+// Output mode controlled by DEBUG_MODE:
+//   DEBUG_MODE 1 → human-readable text (for Arduino Serial Monitor)
+//   DEBUG_MODE 0 → raw 25-byte binary  (for simple-terminal-visualization)
 //
 // Wiring:
 //   LoRa TX  → UNO pin 10 (SOFT_RX_PIN)
@@ -26,10 +20,12 @@
 #include <Arduino.h>
 #include <SoftwareSerial.h>
 
+// ── Debug switch ─────────────────────────────────────────────────────────────
+// Set to 1 for human-readable Serial Monitor output (development/testing).
+// Set to 0 for clean 25-byte binary output (flight / visualization).
+#define DEBUG_MODE  1
+
 // ── Pin config ───────────────────────────────────────────────────────────────
-// SoftwareSerial pins for LoRa module.
-// Pin 10 = RX (receives data FROM LoRa module's TX)
-// Pin 11 = TX (sends data TO LoRa module's RX)
 #define SOFT_RX_PIN     10
 #define SOFT_TX_PIN     11
 
@@ -113,7 +109,6 @@ static size_t hex_to_bytes(const char* hex, uint8_t* out, size_t max_len) {
 }
 
 // ── Unpack telemetry from binary buffer ──────────────────────────────────────
-
 static void unpack_telemetry(const uint8_t* buf, TelemetryData& t) {
     size_t pos = 0;
     memcpy(&t.time_ms,           &buf[pos], 4); pos += 4;
@@ -129,7 +124,6 @@ static void unpack_telemetry(const uint8_t* buf, TelemetryData& t) {
 }
 
 // ── Big-number arithmetic: 60-digit decimal → 25-byte big-endian ─────────────
-// Divide a decimal digit array (MSD first) by 256, returning the remainder.
 static uint8_t divmod256(uint8_t* digits, int len) {
     uint16_t remainder = 0;
     for (int i = 0; i < len; i++) {
@@ -140,19 +134,17 @@ static uint8_t divmod256(uint8_t* digits, int len) {
     return (uint8_t)remainder;
 }
 
-// Convert a 60-char decimal string into 25 bytes (big-endian).
 static void decimal_to_bytes(const char* decimal, uint8_t* out, int out_len) {
-    uint8_t digs[60];  // OUTPUT_DIGITS
+    uint8_t digs[60];
     for (int i = 0; i < OUTPUT_DIGITS; i++) {
         digs[i] = decimal[i] - '0';
     }
 
-    uint8_t tmp[25];   // OUTPUT_BYTES
+    uint8_t tmp[25];
     for (int b = 0; b < out_len; b++) {
         tmp[b] = divmod256(digs, OUTPUT_DIGITS);
     }
 
-    // Reverse: tmp[0]=LSB → out[out_len-1], tmp[out_len-1]=MSB → out[0]
     for (int i = 0; i < out_len; i++) {
         out[i] = tmp[out_len - 1 - i];
     }
@@ -177,7 +169,7 @@ static void encode_to_decimal(const TelemetryData& t, char* out60) {
     sprintf(&out60[pos], "%04ld", (long)time_val);
     pos += 4;
 
-    // latitude (9 digits): placeholder 0 until GPS integrated
+    // latitude (9 digits): placeholder 0
     sprintf(&out60[pos], "%09ld", 0L);
     pos += 9;
 
@@ -203,7 +195,7 @@ static void encode_to_decimal(const TelemetryData& t, char* out60) {
     sprintf(&out60[pos], "%03ld", (long)volt_enc);
     pos += 3;
 
-    // RSSI (3 digits): 0 (not in TX packet)
+    // RSSI (3 digits): 0
     sprintf(&out60[pos], "%03d", 0);
     pos += 3;
 
@@ -258,7 +250,6 @@ static size_t lora_receive_packet(uint8_t* out_data, size_t max_len,
         return 0;
     }
 
-    // Parse hex payload from:  +TEST: RX "<hex>"
     char* start = strchr(s_buf, '"');
     if (!start) return 0;
     start++;
@@ -275,18 +266,21 @@ static size_t lora_receive_packet(uint8_t* out_data, size_t max_len,
 // ═════════════════════════════════════════════════════════════════════════════
 
 void setup() {
-    // Hardware Serial → USB to PC
     Serial.begin(SERIAL_BAUD);
 
-    // Status LED
     pinMode(LED_BUILTIN, OUTPUT);
     digitalWrite(LED_BUILTIN, LOW);
 
+#if DEBUG_MODE
     Serial.println(F("[GND] HAB Ground Station Receiver (UNO)"));
+    Serial.println(F("[GND] *** DEBUG MODE — human-readable output ***"));
     Serial.println(F("[GND] Initialising LoRa on SoftwareSerial..."));
+#endif
 
     if (!lora_init_ground()) {
+#if DEBUG_MODE
         Serial.println(F("[GND] ERROR: LoRa init failed!"));
+#endif
         while (true) {
             digitalWrite(LED_BUILTIN, HIGH);
             delay(200);
@@ -295,11 +289,11 @@ void setup() {
         }
     }
 
+#if DEBUG_MODE
     Serial.println(F("[GND] LoRa ready. Listening..."));
-    Serial.println(F("[GND] -- Binary output begins --"));
-    delay(500);
+#endif
 
-    // LED on = ready
+    delay(500);
     digitalWrite(LED_BUILTIN, HIGH);
 }
 
@@ -309,27 +303,55 @@ void loop() {
     size_t  rx_len = lora_receive_packet(rx_buf, sizeof(rx_buf), 10000);
 
     if (rx_len < TELEM_PACKET_SIZE) {
-        return;  // timeout or corrupt — retry
+#if DEBUG_MODE
+        Serial.println(F("[GND] RX timeout or short packet"));
+#endif
+        return;
     }
 
-    // Brief LED blink to indicate packet received
+    // LED blink to indicate packet received
     digitalWrite(LED_BUILTIN, LOW);
 
     // 2. Unpack binary telemetry
     TelemetryData telem;
     unpack_telemetry(rx_buf, telem);
 
-    // 3. Encode into 60-digit decimal string
+#if DEBUG_MODE
+    // ── DEBUG MODE: human-readable output ─────────────────────────────────
+    Serial.println(F("──────────────────────────────"));
+    Serial.print(F("[GND] Time: "));    Serial.print(telem.time_ms);
+    Serial.print(F(" ms  Alt: "));      Serial.print(telem.altitude, 1);
+    Serial.print(F(" m  VVel: "));      Serial.print(telem.vertical_velocity, 2);
+    Serial.println(F(" m/s"));
+
+    Serial.print(F("[GND] Temp: "));    Serial.print(telem.temperature, 1);
+    Serial.print(F(" C  Pres: "));      Serial.print(telem.pressure, 1);
+    Serial.print(F(" hPa  Volt: "));    Serial.print(telem.voltage, 2);
+    Serial.println(F(" V"));
+
+    Serial.print(F("[GND] Accel: "));
+    Serial.print(telem.ax, 2); Serial.print(F(", "));
+    Serial.print(telem.ay, 2); Serial.print(F(", "));
+    Serial.print(telem.az, 2); Serial.println(F(" m/s2"));
+
+    Serial.print(F("[GND] Flags: BMP="));
+    Serial.print((telem.flags & 0x01) ? F("OK") : F("FAIL"));
+    Serial.print(F("  IMU="));
+    Serial.print((telem.flags & 0x02) ? F("OK") : F("FAIL"));
+    Serial.print(F("  GNSS="));
+    Serial.println((telem.flags & 0x04) ? F("OK") : F("FAIL"));
+
+#else
+    // ── FLIGHT MODE: 25-byte binary for simple-terminal-visualization ─────
     char decimal[OUTPUT_DIGITS + 1];
     encode_to_decimal(telem, decimal);
 
-    // 4. Convert 60-digit decimal → 25 bytes (big-endian)
     uint8_t output[OUTPUT_BYTES];
     decimal_to_bytes(decimal, output, OUTPUT_BYTES);
 
-    // 5. Send 25 raw bytes over USB Serial to PC
     Serial.write(output, OUTPUT_BYTES);
     Serial.flush();
+#endif
 
     digitalWrite(LED_BUILTIN, HIGH);
 }
