@@ -5,7 +5,7 @@
 // TEST_MODE      : shorter flight limits + verbose serial output
 // ENABLE_BUZZER  : drive the buzzer during dot/dash calls
 #define TEST_MODE       1
-#define ENABLE_BUZZER   1
+#define ENABLE_BUZZER   0
 
 // ── Flight termination limits ─────────────────────────────────────────────────
 #if TEST_MODE
@@ -26,7 +26,7 @@
 
 // ── BMP390 ────────────────────────────────────────────────────────────────────
 #define BMP_I2C_ADDR        0x76
-#define BMP_SEA_LEVEL_HPA   1013.25f
+#define BMP_SEA_LEVEL_HPA   1029.40f
 
 // ── IMU (LSM6DSM) ─────────────────────────────────────────────────────────────
 #define IMU_I2C_ADDR        0x6B
@@ -36,7 +36,7 @@
 #define IMU_GYRO_RANGE      GYRO_FS_2000
 
 // ── LoRa Radio ────────────────────────────────────────────────────────────────
-#define LORA_RX_PIN         2      // MCU RX ← LoRa TX
+#define LORA_RX_PIN         0      // MCU RX ← LoRa TX
 #define LORA_TX_PIN         1      // MCU TX → LoRa RX
 #define LORA_BAUD           9600   // HardwareSerial baud to LoRa module
 

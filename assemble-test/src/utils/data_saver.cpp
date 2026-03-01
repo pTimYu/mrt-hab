@@ -31,7 +31,7 @@ bool data_saver_init() {
     }
 
     // Write a header line so the file is human-readable after recovery
-    logFile.println(F("TIME\tVOLT\tTEMP\tPRES\tBMP_ALT\tALT\tVVEL\t"
+    logFile.println(F("TIME\tTIME_NOW\tVOLT\tTEMP\tPRES\tBMP_ALT\tALT\tVVEL\t"
                       "AX\tAY\tAZ\tGX\tGY\tGZ\t"
                       "LAT\tLON\tGPS_ALT\tSPD\tHDG\t"
                       "RSSI\tGAIN\tBMP_OK\tIMU_OK\tGNSS_OK"));
@@ -55,6 +55,7 @@ bool data_saver_write(const DataSet& data) {
 
     // General
     logFile.print(data.time);           logFile.print('\t');
+    logFile.print(data.time_now);       logFile.print('\t');
     logFile.print(data.voltage, 3);     logFile.print('\t');
 
     // BMP
