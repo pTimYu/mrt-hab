@@ -52,8 +52,8 @@ void mapToDataSet(std::string fullDecimal, DataSet& data) {
     };
 
     data.time        = std::stoi(getNext(4));   // MMSS or HHMM
-    data.latitude    = std::stof(getNext(9)) / 1e6f;  // restore degrees
-    data.longitude   = std::stof(getNext(9)) / 1e6f;
+    data.latitude    = std::stof(getNext(9) - 1e8f) / 1e5f;  // restore degrees
+    data.longitude   = std::stof(getNext(9) - 1e8f) / 1e5f;
     data.speed_gps   = std::stof(getNext(3)) / 10.0f; // restore m/s
     data.heading_gps = std::stoi(getNext(3));
     data.altitude    = std::stoi(getNext(5));           // metres, integer
