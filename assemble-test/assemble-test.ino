@@ -42,9 +42,9 @@ static bool      lora_ok        = false;
 // Pack key DataSet fields into a compact binary buffer for LoRa transmission.
 // All multi-byte values are little-endian (native on ARM Cortex-M / ESP32).
 //
-// Byte layout (32 bytes):
-//   [ 0.. 3]  time               (int32)
-//   [ 4.. 7]  altitude           (float)
+// Byte layout (53 bytes):
+//   [ 0.. 3]  time               (int32)   — effective flight time ms
+//   [ 4.. 7]  altitude           (float)   — Kalman filtered
 //   [ 8..11]  vertical_velocity  (float)
 //   [12..15]  temperature        (float)
 //   [16..19]  pressure           (float)
@@ -52,11 +52,18 @@ static bool      lora_ok        = false;
 //   [24..27]  ay                 (float)
 //   [28..31]  az                 (float)
 //   [32..35]  voltage            (float)
-//   [36]      status flags       (uint8_t: bit0=bmp, bit1=imu, bit2=gnss)
+//   ── GPS fields ──
+//   [36..37]  time_now           (int16)   — GNSS time as MMSS
+//   [38..41]  latitude           (float)
+//   [42..45]  longitude          (float)
+//   [46..49]  speed_gps          (float)
+//   [50..51]  heading_gps        (int16)
+//   ── Flags ──
+//   [52]      status flags       (uint8_t: bit0=bmp, bit1=imu, bit2=gps)
 //
-// Total: 37 bytes
+// Total: 53 bytes  (within LORA_MAX_PAYLOAD of 120)
 
-static const size_t TELEM_PACKET_SIZE = 37;
+static const size_t TELEM_PACKET_SIZE = 53;
 
 static size_t pack_telemetry(const DataSet& d, uint8_t* buf) {
     size_t pos = 0;
@@ -71,9 +78,19 @@ static size_t pack_telemetry(const DataSet& d, uint8_t* buf) {
     memcpy(&buf[pos], &d.az,               sizeof(float));    pos += 4;
     memcpy(&buf[pos], &d.voltage,          sizeof(float));    pos += 4;
 
+    // GPS fields
+    int16_t time_now_i16 = (int16_t)d.time_now;
+    memcpy(&buf[pos], &time_now_i16,       sizeof(int16_t));  pos += 2;
+    memcpy(&buf[pos], &d.latitude,         sizeof(float));    pos += 4;
+    memcpy(&buf[pos], &d.longitude,        sizeof(float));    pos += 4;
+    memcpy(&buf[pos], &d.speed_gps,        sizeof(float));    pos += 4;
+    int16_t hdg_i16 = (int16_t)d.heading_gps;
+    memcpy(&buf[pos], &hdg_i16,            sizeof(int16_t));  pos += 2;
+
+    // Flags
     uint8_t flags = 0;
-    if (d.bmp)  flags |= 0x01;
-    if (d.imu)  flags |= 0x02;
+    if (d.bmp) flags |= 0x01;
+    if (d.imu) flags |= 0x02;
     if (d.gps) flags |= 0x04;
     buf[pos++] = flags;
 
@@ -108,6 +125,14 @@ void setup() {
         boot_ok = false;
     }
 
+    if (!gps_init()) {                      // <── GPS init added
+        buzzer_error(5);    // code 5 = GNSS
+        boot_ok = false;
+#if TEST_MODE
+        Serial.println(F(">> GNSS init failed"));
+#endif
+    }
+
     if (!data_saver_init()) {
         buzzer_error(2);    // code 2 = SD card
         boot_ok = false;
@@ -116,7 +141,7 @@ void setup() {
     // ── LoRa init ─────────────────────────────────────────────────────────
     lora_ok = lora_init();
     if (!lora_ok) {
-        buzzer_error(5);    // code 5 = radio
+        buzzer_error(4);    // code 4 = LoRa radio (was HMC5883L, now unused)
         boot_ok = false;
     }
 

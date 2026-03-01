@@ -4,7 +4,7 @@
 // Hardware Serial (pins 0/1) → USB to PC
 // SoftwareSerial             → LoRa module (AT commands, 9600 baud)
 //
-// Receives 37-byte binary LoRa telemetry packets from the flight computer,
+// Receives 53-byte binary LoRa telemetry packets from the flight computer,
 // unpacks the data, and outputs it over hardware Serial (USB).
 //
 // Output mode controlled by DEBUG_MODE:
@@ -21,8 +21,6 @@
 #include <SoftwareSerial.h>
 
 // ── Debug switch ─────────────────────────────────────────────────────────────
-// Set to 1 for human-readable Serial Monitor output (development/testing).
-// Set to 0 for clean 25-byte binary output (flight / visualization).
 #define DEBUG_MODE  1
 
 // ── Pin config ───────────────────────────────────────────────────────────────
@@ -40,9 +38,9 @@
 SoftwareSerial loraSerial(SOFT_RX_PIN, SOFT_TX_PIN);  // RX, TX
 
 // ── Telemetry packet layout (from flight computer) ───────────────────────────
-// 37 bytes, little-endian:
+// 53 bytes, little-endian:
 //   [ 0.. 3]  time               (int32)     — flight elapsed ms
-//   [ 4.. 7]  altitude           (float)
+//   [ 4.. 7]  altitude           (float)     — Kalman filtered
 //   [ 8..11]  vertical_velocity  (float)
 //   [12..15]  temperature        (float)
 //   [16..19]  pressure           (float)
@@ -50,13 +48,18 @@ SoftwareSerial loraSerial(SOFT_RX_PIN, SOFT_TX_PIN);  // RX, TX
 //   [24..27]  ay                 (float)
 //   [28..31]  az                 (float)
 //   [32..35]  voltage            (float)
-//   [36]      flags              (uint8_t)
-static const size_t TELEM_PACKET_SIZE = 37;
+//   [36..37]  time_now           (int16)     — GNSS time MMSS
+//   [38..41]  latitude           (float)
+//   [42..45]  longitude          (float)
+//   [46..49]  speed_gps          (float)
+//   [50..51]  heading_gps        (int16)
+//   [52]      flags              (uint8_t)
+static const size_t TELEM_PACKET_SIZE = 53;
 
 static const int OUTPUT_BYTES   = 25;
 static const int OUTPUT_DIGITS  = 60;
 
-// ── Struct declared early so Arduino IDE auto-prototypes resolve correctly ───
+// ── Struct ───────────────────────────────────────────────────────────────────
 struct TelemetryData {
     int32_t time_ms;
     float   altitude;
@@ -65,6 +68,13 @@ struct TelemetryData {
     float   pressure;
     float   ax, ay, az;
     float   voltage;
+    // GPS
+    int16_t time_now;           // GNSS time as MMSS
+    float   latitude;
+    float   longitude;
+    float   speed_gps;          // m/s
+    int16_t heading_gps;        // degrees
+    // Flags
     uint8_t flags;
 };
 
@@ -86,7 +96,7 @@ static bool wait_for(const char* keyword, unsigned long timeout) {
                 s_buf[idx++] = (char)loraSerial.read();
                 delay(2);
             } else {
-                loraSerial.read();  // discard overflow
+                loraSerial.read();
             }
         }
         if (strstr(s_buf, keyword)) return true;
@@ -120,6 +130,12 @@ static void unpack_telemetry(const uint8_t* buf, TelemetryData& t) {
     memcpy(&t.ay,                &buf[pos], 4); pos += 4;
     memcpy(&t.az,                &buf[pos], 4); pos += 4;
     memcpy(&t.voltage,           &buf[pos], 4); pos += 4;
+    // GPS fields
+    memcpy(&t.time_now,          &buf[pos], 2); pos += 2;
+    memcpy(&t.latitude,          &buf[pos], 4); pos += 4;
+    memcpy(&t.longitude,         &buf[pos], 4); pos += 4;
+    memcpy(&t.speed_gps,         &buf[pos], 4); pos += 4;
+    memcpy(&t.heading_gps,       &buf[pos], 2); pos += 2;
     t.flags = buf[pos];
 }
 
@@ -158,62 +174,77 @@ static int32_t clamp_i(int32_t v, int32_t lo, int32_t hi) {
 }
 
 // ── Encode telemetry → 60-digit decimal string ──────────────────────────────
+// Format matches ground-station visualization expectations:
+//   Time(4) + Lat(9) + Lon(9) + Speed(3) + Heading(3) +
+//   Alt(5) + Voltage(3) + RSSI(3) + Gain(3) + AccX(6) + AccY(6) + AccZ(6)
+//   = 60 digits total
 static void encode_to_decimal(const TelemetryData& t, char* out60) {
     int pos = 0;
 
-    // time (4 digits): elapsed ms → MMSS
-    uint32_t total_sec = (uint32_t)(t.time_ms / 1000);
-    uint32_t mm = (total_sec / 60) % 100;
-    uint32_t ss = total_sec % 60;
-    int32_t time_val = clamp_i((int32_t)(mm * 100 + ss), 0, 9999);
+    // Time (4 digits): GNSS MMSS directly
+    // time_now is already in MMSS format from the flight computer
+    int32_t time_val = clamp_i((int32_t)t.time_now, 0, 9999);
     sprintf(&out60[pos], "%04ld", (long)time_val);
     pos += 4;
 
-    // latitude (9 digits): placeholder 0
-    sprintf(&out60[pos], "%09ld", 0L);
-    pos += 9;
+    // Latitude (9 digits): encode as N/S + degrees × 100000
+    // Format: S_DDD_DDDDD where S=0 for N, S=1 for S
+    // Offset by 1e8 so it's always positive (matches ground station decode)
+    {
+        float lat = t.latitude;
+        // Encode: (lat * 1e5) + 1e8  → always positive 9-digit number
+        int32_t lat_enc = clamp_i((int32_t)(lat * 100000.0f + 100000000L), 0, 199999999L);
+        sprintf(&out60[pos], "%09ld", (long)lat_enc);
+        pos += 9;
+    }
 
-    // longitude (9 digits): placeholder 0
-    sprintf(&out60[pos], "%09ld", 0L);
-    pos += 9;
+    // Longitude (9 digits): same encoding as latitude
+    {
+        float lon = t.longitude;
+        int32_t lon_enc = clamp_i((int32_t)(lon * 100000.0f + 100000000L), 0, 199999999L);
+        sprintf(&out60[pos], "%09ld", (long)lon_enc);
+        pos += 9;
+    }
 
-    // speed_gps (3 digits): placeholder 0
-    sprintf(&out60[pos], "%03ld", 0L);
+    // Speed GPS (3 digits): m/s × 10
+    int32_t spd_enc = clamp_i((int32_t)(t.speed_gps * 10.0f), 0, 999);
+    sprintf(&out60[pos], "%03ld", (long)spd_enc);
     pos += 3;
 
-    // heading_gps (3 digits): placeholder 0
-    sprintf(&out60[pos], "%03ld", 0L);
+    // Heading GPS (3 digits): degrees 0–359
+    int32_t hdg_enc = clamp_i((int32_t)t.heading_gps, 0, 999);
+    sprintf(&out60[pos], "%03ld", (long)hdg_enc);
     pos += 3;
 
-    // altitude (5 digits): metres integer
+    // Altitude (5 digits): Kalman-filtered altitude in metres (integer)
     int32_t alt_enc = clamp_i((int32_t)t.altitude, 0, 99999);
     sprintf(&out60[pos], "%05ld", (long)alt_enc);
     pos += 5;
 
-    // voltage (3 digits): V × 100
+    // Voltage (3 digits): V × 100
     int32_t volt_enc = clamp_i((int32_t)(t.voltage * 100.0f), 0, 999);
     sprintf(&out60[pos], "%03ld", (long)volt_enc);
     pos += 3;
 
-    // RSSI (3 digits): 0
+    // RSSI (3 digits): not available from flight computer, send 0
     sprintf(&out60[pos], "%03d", 0);
     pos += 3;
 
-    // Gain (3 digits): 0
+    // Gain (3 digits): not available from flight computer, send 0
     sprintf(&out60[pos], "%03d", 0);
     pos += 3;
 
-    // accel_x (6 digits): (m/s² + 100) × 1000
+    // Accel X (6 digits): (m/s² + 100) × 1000
     int32_t ax_enc = clamp_i((int32_t)((t.ax + 100.0f) * 1000.0f), 0, 199999);
     sprintf(&out60[pos], "%06ld", (long)ax_enc);
     pos += 6;
 
-    // accel_y (6 digits)
+    // Accel Y (6 digits)
     int32_t ay_enc = clamp_i((int32_t)((t.ay + 100.0f) * 1000.0f), 0, 199999);
     sprintf(&out60[pos], "%06ld", (long)ay_enc);
     pos += 6;
 
-    // accel_z (6 digits)
+    // Accel Z (6 digits)
     int32_t az_enc = clamp_i((int32_t)((t.az + 100.0f) * 1000.0f), 0, 199999);
     sprintf(&out60[pos], "%06ld", (long)az_enc);
     pos += 6;
@@ -299,7 +330,7 @@ void setup() {
 
 void loop() {
     // 1. Receive LoRa packet (blocks up to 10s)
-    uint8_t rx_buf[64];
+    uint8_t rx_buf[128];
     size_t  rx_len = lora_receive_packet(rx_buf, sizeof(rx_buf), 10000);
 
     if (rx_len < TELEM_PACKET_SIZE) {
@@ -320,7 +351,8 @@ void loop() {
     // ── DEBUG MODE: human-readable output ─────────────────────────────────
     Serial.println(F("──────────────────────────────"));
     Serial.print(F("[GND] Time: "));    Serial.print(telem.time_ms);
-    Serial.print(F(" ms  Alt: "));      Serial.print(telem.altitude, 1);
+    Serial.print(F(" ms  GNSS: "));     Serial.print(telem.time_now);
+    Serial.print(F("  Alt: "));         Serial.print(telem.altitude, 1);
     Serial.print(F(" m  VVel: "));      Serial.print(telem.vertical_velocity, 2);
     Serial.println(F(" m/s"));
 
@@ -328,6 +360,12 @@ void loop() {
     Serial.print(F(" C  Pres: "));      Serial.print(telem.pressure, 1);
     Serial.print(F(" hPa  Volt: "));    Serial.print(telem.voltage, 2);
     Serial.println(F(" V"));
+
+    Serial.print(F("[GND] GPS: "));
+    Serial.print(telem.latitude, 5);    Serial.print(F(", "));
+    Serial.print(telem.longitude, 5);   Serial.print(F("  Spd: "));
+    Serial.print(telem.speed_gps, 1);   Serial.print(F(" m/s  Hdg: "));
+    Serial.println(telem.heading_gps);
 
     Serial.print(F("[GND] Accel: "));
     Serial.print(telem.ax, 2); Serial.print(F(", "));
