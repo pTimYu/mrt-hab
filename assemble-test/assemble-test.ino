@@ -38,63 +38,127 @@ static uint32_t  last_loop_ms   = 0;
 static uint32_t  last_lora_ms   = 0;
 static bool      lora_ok        = false;
 
-// ── Telemetry packing ─────────────────────────────────────────────────────────
-// Pack key DataSet fields into a compact binary buffer for LoRa transmission.
-// All multi-byte values are little-endian (native on ARM Cortex-M / ESP32).
+// ── Telemetry format ──────────────────────────────────────────────────────────
 //
-// Byte layout (53 bytes):
-//   [ 0.. 3]  time               (int32)   — effective flight time ms
-//   [ 4.. 7]  altitude           (float)   — Kalman filtered
-//   [ 8..11]  vertical_velocity  (float)
-//   [12..15]  temperature        (float)
-//   [16..19]  pressure           (float)
-//   [20..23]  ax                 (float)
-//   [24..27]  ay                 (float)
-//   [28..31]  az                 (float)
-//   [32..35]  voltage            (float)
-//   ── GPS fields ──
-//   [36..37]  time_now           (int16)   — GNSS time as MMSS
-//   [38..41]  latitude           (float)
-//   [42..45]  longitude          (float)
-//   [46..49]  speed_gps          (float)
-//   [50..51]  heading_gps        (int16)
-//   ── Flags ──
-//   [52]      status flags       (uint8_t: bit0=bmp, bit1=imu, bit2=gps)
+// 54-digit decimal string packed into 23 bytes (big-endian).
 //
-// Total: 53 bytes  (within LORA_MAX_PAYLOAD of 120)
+// Digit layout:
+//   [ 0.. 5]  Time       (6 digits)  HHMMSS from GNSS
+//   [ 6..14]  Latitude   (9 digits)  (lat × 1e5) + 1e8
+//   [15..23]  Longitude  (9 digits)  (lon × 1e5) + 1e8
+//   [24..26]  Speed      (3 digits)  speed_gps × 10
+//   [27..29]  Heading    (3 digits)  heading_gps
+//   [30..35]  Height     (6 digits)  Kalman altitude × 10
+//   [36..38]  Voltage    (3 digits)  voltage × 100
+//   [39..43]  Accel X    (5 digits)  (ax × 100) + 10000
+//   [44..48]  Accel Y    (5 digits)  (ay × 100) + 10000
+//   [49..53]  Accel Z    (5 digits)  (az × 100) + 10000
+//
+// 54 decimal digits → ceil(54 × log2(10) / 8) = ceil(179.38 / 8) = 23 bytes.
+//
+static const int  TELEM_DIGITS      = 54;
+static const int  TELEM_PACKET_SIZE = 23;
 
-static const size_t TELEM_PACKET_SIZE = 53;
+// ── Clamping helper ───────────────────────────────────────────────────────────
+static int32_t clamp_i(int32_t v, int32_t lo, int32_t hi) {
+    if (v < lo) return lo;
+    if (v > hi) return hi;
+    return v;
+}
 
+// ── Decimal → bytes (big-endian, repeated /256) ──────────────────────────────
+// Converts an n_digits decimal string into n_bytes big-endian bytes.
+static void decimal_to_bytes(const char* decimal, int n_digits,
+                             uint8_t* out, int n_bytes) {
+    uint8_t digs[TELEM_DIGITS];
+    for (int i = 0; i < n_digits; i++) {
+        digs[i] = decimal[i] - '0';
+    }
+
+    uint8_t tmp[TELEM_PACKET_SIZE];
+    for (int b = 0; b < n_bytes; b++) {
+        uint16_t remainder = 0;
+        for (int i = 0; i < n_digits; i++) {
+            uint16_t val = remainder * 10 + digs[i];
+            digs[i] = (uint8_t)(val / 256);
+            remainder = val % 256;
+        }
+        tmp[b] = (uint8_t)remainder;
+    }
+
+    // Reverse to big-endian
+    for (int i = 0; i < n_bytes; i++) {
+        out[i] = tmp[n_bytes - 1 - i];
+    }
+}
+
+// ── Encode DataSet → 54-digit decimal → 23-byte binary ──────────────────────
 static size_t pack_telemetry(const DataSet& d, uint8_t* buf) {
-    size_t pos = 0;
+    char dec[TELEM_DIGITS + 1];
+    int pos = 0;
 
-    memcpy(&buf[pos], &d.time,              sizeof(int32_t));  pos += 4;
-    memcpy(&buf[pos], &d.altitude,          sizeof(float));    pos += 4;
-    memcpy(&buf[pos], &d.vertical_velocity, sizeof(float));    pos += 4;
-    memcpy(&buf[pos], &d.temperature,       sizeof(float));    pos += 4;
-    memcpy(&buf[pos], &d.pressure,          sizeof(float));    pos += 4;
-    memcpy(&buf[pos], &d.ax,               sizeof(float));    pos += 4;
-    memcpy(&buf[pos], &d.ay,               sizeof(float));    pos += 4;
-    memcpy(&buf[pos], &d.az,               sizeof(float));    pos += 4;
-    memcpy(&buf[pos], &d.voltage,          sizeof(float));    pos += 4;
+    // [0-5]  Time HHMMSS (6 digits)
+    int32_t t = clamp_i((int32_t)d.time_now, 0, 235959);
+    sprintf(&dec[pos], "%06ld", (long)t);
+    pos += 6;
 
-    // GPS fields
-    int16_t time_now_i16 = (int16_t)d.time_now;
-    memcpy(&buf[pos], &time_now_i16,       sizeof(int16_t));  pos += 2;
-    memcpy(&buf[pos], &d.latitude,         sizeof(float));    pos += 4;
-    memcpy(&buf[pos], &d.longitude,        sizeof(float));    pos += 4;
-    memcpy(&buf[pos], &d.speed_gps,        sizeof(float));    pos += 4;
-    int16_t hdg_i16 = (int16_t)d.heading_gps;
-    memcpy(&buf[pos], &hdg_i16,            sizeof(int16_t));  pos += 2;
+    // [6-14]  Latitude (9 digits): (lat × 1e5) + 1e8
+    int32_t lat_enc = clamp_i((int32_t)(d.latitude * 100000.0f + 100000000L),
+                              0, 199999999L);
+    sprintf(&dec[pos], "%09ld", (long)lat_enc);
+    pos += 9;
 
-    // Flags
-    uint8_t flags = 0;
-    if (d.bmp) flags |= 0x01;
-    if (d.imu) flags |= 0x02;
-    if (d.gps) flags |= 0x04;
-    buf[pos++] = flags;
+    // [15-23]  Longitude (9 digits): (lon × 1e5) + 1e8
+    int32_t lon_enc = clamp_i((int32_t)(d.longitude * 100000.0f + 100000000L),
+                              0, 199999999L);
+    sprintf(&dec[pos], "%09ld", (long)lon_enc);
+    pos += 9;
 
-    return pos;  // should be TELEM_PACKET_SIZE
+    // [24-26]  GPS Speed (3 digits): speed × 10
+    int32_t spd = clamp_i((int32_t)(d.speed_gps * 10.0f), 0, 999);
+    sprintf(&dec[pos], "%03ld", (long)spd);
+    pos += 3;
+
+    // [27-29]  Heading (3 digits)
+    int32_t hdg = clamp_i((int32_t)d.heading_gps, 0, 999);
+    sprintf(&dec[pos], "%03ld", (long)hdg);
+    pos += 3;
+
+    // [30-35]  Height (6 digits): Kalman altitude × 10
+    int32_t alt = clamp_i((int32_t)(d.altitude * 10.0f), 0, 999999);
+    sprintf(&dec[pos], "%06ld", (long)alt);
+    pos += 6;
+
+    // [36-38]  Voltage (3 digits): voltage × 100
+    int32_t volt = clamp_i((int32_t)(d.voltage * 100.0f), 0, 999);
+    sprintf(&dec[pos], "%03ld", (long)volt);
+    pos += 3;
+
+    // [39-43]  Accel X (5 digits): (ax × 100) + 10000
+    int32_t ax_e = clamp_i((int32_t)(d.ax * 100.0f) + 10000, 0, 19999);
+    sprintf(&dec[pos], "%05ld", (long)ax_e);
+    pos += 5;
+
+    // [44-48]  Accel Y (5 digits): (ay × 100) + 10000
+    int32_t ay_e = clamp_i((int32_t)(d.ay * 100.0f) + 10000, 0, 19999);
+    sprintf(&dec[pos], "%05ld", (long)ay_e);
+    pos += 5;
+
+    // [49-53]  Accel Z (5 digits): (az × 100) + 10000
+    int32_t az_e = clamp_i((int32_t)(d.az * 100.0f) + 10000, 0, 19999);
+    sprintf(&dec[pos], "%05ld", (long)az_e);
+    pos += 5;
+
+    dec[TELEM_DIGITS] = '\0';
+
+#if TEST_MODE
+    Serial.print(F("[TELEM] dec="));
+    Serial.println(dec);
+#endif
+
+    // Convert 54-digit decimal string → 23 bytes
+    decimal_to_bytes(dec, TELEM_DIGITS, buf, TELEM_PACKET_SIZE);
+    return TELEM_PACKET_SIZE;
 }
 
 // ── setup() ───────────────────────────────────────────────────────────────────
@@ -125,7 +189,7 @@ void setup() {
         boot_ok = false;
     }
 
-    if (!gps_init()) {                      // <── GPS init added
+    if (!gps_init()) {
         buzzer_error(5);    // code 5 = GNSS
         boot_ok = false;
 #if TEST_MODE
@@ -141,7 +205,7 @@ void setup() {
     // ── LoRa init ─────────────────────────────────────────────────────────
     lora_ok = lora_init();
     if (!lora_ok) {
-        buzzer_error(4);    // code 4 = LoRa radio (was HMC5883L, now unused)
+        buzzer_error(4);    // code 4 = LoRa radio
         boot_ok = false;
     }
 
@@ -186,8 +250,6 @@ void loop() {
     fc_update(data_set);
 
     // ── 5. LoRa telemetry transmit ────────────────────────────────────────
-    // Transmit at the configured interval during ASCENT, DESCENT, and LANDED.
-    // Skip during STANDBY to avoid unnecessary radio traffic before flight.
     if (lora_ok && (now - last_lora_ms >= LORA_TX_INTERVAL_MS)) {
         FlightStatus status = fc_get_status();
         if (status != STNDBY) {

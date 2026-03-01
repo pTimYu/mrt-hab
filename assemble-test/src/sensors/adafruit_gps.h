@@ -2,7 +2,7 @@
 
 struct GnssData
 {
-    int time_now;                    // Time now
+    int time_now;                    // HHMMSS from GNSS (6 digits)
     bool location_valid; float latitude; float longitude; // Location
     bool gps_altitude_valid; float gps_altitude;          // m (MSL)
     bool speed_gps_valid; float speed_gps;                // m/s

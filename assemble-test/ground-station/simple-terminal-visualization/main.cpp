@@ -74,11 +74,20 @@ int main() {
     while (true) {
         if (data_receive_and_decompose(received_data)) {
             std::cout << "--- Current Data Set ---" << std::endl;
-            std::cout << "Time:      " << received_data.time << std::endl;
+
+            // Time as HH:MM:SS
+            int t = received_data.time;
+            int hh = t / 10000;
+            int mm = (t / 100) % 100;
+            int ss = t % 100;
+            printf("Time:       %02d:%02d:%02d\n", hh, mm, ss);
+
             std::cout << "Lat/Long:  " << received_data.latitude << ", " << received_data.longitude << std::endl;
             std::cout << "Speed/Hdg: " << received_data.speed_gps << " / " << received_data.heading_gps << std::endl;
-            std::cout << "Altitude:    " << received_data.altitude << std::endl;
-            std::cout << "Voltage:   " << received_data.voltage << "V" << std::endl;
+            printf("Altitude:   %.1f m\n", received_data.altitude);
+            printf("Voltage:    %.2f V\n", received_data.voltage);
+            printf("RSSI:       %.0f dBm\n", received_data.RSSI);
+            printf("SNR:        %.1f dB\n", received_data.Gain);
             std::cout << "Accel X/Y/Z: " 
                       << received_data.accel_x << ", " 
                       << received_data.accel_y << ", " 

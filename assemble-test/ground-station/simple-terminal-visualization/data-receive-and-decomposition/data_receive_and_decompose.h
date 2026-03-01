@@ -5,11 +5,11 @@
 extern serialib serial;
 
 struct DataSet{
-    int time;
+    int time;                                              // HHMMSS from GNSS
     float latitude, longitude, speed_gps; int heading_gps; // GPS
-    int altitude;
+    float altitude;                                        // metres (1 decimal)
     float voltage;
-    float RSSI, Gain;
+    float RSSI, Gain;                                      // measured by ground station
     float accel_x, accel_y, accel_z;
 };
 

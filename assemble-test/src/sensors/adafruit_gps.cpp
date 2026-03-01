@@ -31,8 +31,10 @@ void gps_read_data(GnssData& data) {
         gps.encode(GPS_SERIAL.read());
     }
 
-    // Time: extract MMSS (4-digit integer)
-    data.time_now = (gps.time.value() / 100) % 10000;
+    // Time: extract HHMMSS (6-digit integer)
+    // TinyGPSPlus time.value() returns HHMMSScc (centiseconds).
+    // Dividing by 100 strips the centiseconds → HHMMSS.
+    data.time_now = gps.time.value() / 100;
 
     // Location
     data.location_valid = gps.location.isValid();

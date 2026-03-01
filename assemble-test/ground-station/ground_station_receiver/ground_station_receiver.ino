@@ -4,12 +4,9 @@
 // Hardware Serial (pins 0/1) → USB to PC
 // SoftwareSerial             → LoRa module (AT commands, 9600 baud)
 //
-// Receives 53-byte binary LoRa telemetry packets from the flight computer,
-// unpacks the data, and outputs it over hardware Serial (USB).
-//
-// RSSI and SNR are measured locally by the ground station's LoRa module
-// on each received packet.  They are encoded into the 60-digit output
-// for the simple-terminal-visualization.
+// Receives 23-byte LoRa telemetry packets (54-digit decimal, no RSSI/SNR),
+// measures RSSI and SNR locally from the LoRa module's AT response,
+// inserts them to form a 60-digit decimal (25-byte binary) output to the PC.
 //
 // Output mode controlled by DEBUG_MODE:
 //   DEBUG_MODE 1 → human-readable text (for Arduino Serial Monitor)
@@ -41,48 +38,34 @@
 // ── SoftwareSerial instance for LoRa ─────────────────────────────────────────
 SoftwareSerial loraSerial(SOFT_RX_PIN, SOFT_TX_PIN);  // RX, TX
 
-// ── Telemetry packet layout (from flight computer) ───────────────────────────
-// 53 bytes, little-endian:
-//   [ 0.. 3]  time               (int32)     — flight elapsed ms
-//   [ 4.. 7]  altitude           (float)     — Kalman filtered
-//   [ 8..11]  vertical_velocity  (float)
-//   [12..15]  temperature        (float)
-//   [16..19]  pressure           (float)
-//   [20..23]  ax                 (float)
-//   [24..27]  ay                 (float)
-//   [28..31]  az                 (float)
-//   [32..35]  voltage            (float)
-//   [36..37]  time_now           (int16)     — GNSS time MMSS
-//   [38..41]  latitude           (float)
-//   [42..45]  longitude          (float)
-//   [46..49]  speed_gps          (float)
-//   [50..51]  heading_gps        (int16)
-//   [52]      flags              (uint8_t)
-static const size_t TELEM_PACKET_SIZE = 53;
+// ── Packet sizes ─────────────────────────────────────────────────────────────
+//
+// LoRa packet (from flight computer):
+//   54 decimal digits packed into 23 bytes (big-endian).
+//   ceil(54 × log₂10 / 8) = ceil(179.38 / 8) = 23
+//
+// PC output (to simple-terminal-visualization):
+//   60 decimal digits packed into 25 bytes (big-endian).
+//   The extra 6 digits are RSSI (3) + SNR (3) inserted by this ground station.
+//
+static const int TELEM_DIGITS      = 54;
+static const int TELEM_PACKET_SIZE = 23;
+static const int OUTPUT_DIGITS     = 60;
+static const int OUTPUT_BYTES      = 25;
 
-static const int OUTPUT_BYTES   = 25;
-static const int OUTPUT_DIGITS  = 60;
-
-// ── Struct ───────────────────────────────────────────────────────────────────
+// ── Decoded telemetry (parsed from the 54-digit string) ─────────────────────
 struct TelemetryData {
-    int32_t time_ms;
-    float   altitude;
-    float   vertical_velocity;
-    float   temperature;
-    float   pressure;
-    float   ax, ay, az;
-    float   voltage;
-    // GPS
-    int16_t time_now;           // GNSS time as MMSS
-    float   latitude;
-    float   longitude;
+    int32_t time_hhmmss;        // HHMMSS
+    float   latitude;           // degrees
+    float   longitude;          // degrees
     float   speed_gps;          // m/s
-    int16_t heading_gps;        // degrees
-    // Flags
-    uint8_t flags;
+    int     heading_gps;        // degrees
+    float   altitude;           // m (Kalman)
+    float   voltage;            // V
+    float   ax, ay, az;         // m/s²
 };
 
-// ── Ground-station radio quality (measured locally, NOT from FC packet) ──────
+// ── Ground-station radio quality (measured locally) ──────────────────────────
 struct RadioQuality {
     int rssi;       // dBm (negative, e.g. -80)
     int snr;        // dB  (e.g. 10)
@@ -96,8 +79,6 @@ static void send_at(const char* cmd) {
     loraSerial.print(cmd);
 }
 
-// Block until `keyword` appears in the module response or `timeout` expires.
-// The full response is captured in s_buf for later parsing.
 static bool wait_for(const char* keyword, unsigned long timeout) {
     unsigned long start = millis();
     s_buf_len = 0;
@@ -109,7 +90,7 @@ static bool wait_for(const char* keyword, unsigned long timeout) {
                 s_buf[s_buf_len++] = (char)loraSerial.read();
                 delay(2);
             } else {
-                loraSerial.read();  // discard overflow
+                loraSerial.read();
             }
         }
         if (strstr(s_buf, keyword)) return true;
@@ -117,9 +98,6 @@ static bool wait_for(const char* keyword, unsigned long timeout) {
     return false;
 }
 
-// Continue reading bytes into s_buf (without clearing) for up to `extra_ms`.
-// The Wio-E5 sends the RSSI/SNR line shortly after the RX payload line.
-// This gives the module time to finish transmitting those trailing fields.
 static void drain_extra(unsigned long extra_ms) {
     unsigned long start = millis();
     while (millis() - start < extra_ms) {
@@ -136,29 +114,16 @@ static void drain_extra(unsigned long extra_ms) {
 }
 
 // ── RSSI / SNR parser ────────────────────────────────────────────────────────
-// Wio-E5 response after receiving a packet:
-//   +TEST: RX "<hex>"
-//   +TEST: RSSI:-80 SNR:10
-//
-// Some firmware versions use commas:
-//   +TEST: RX "<hex>", RSSI:-80, SNR:10
-//
-// Scans s_buf for "RSSI:" and "SNR:" and extracts the integer values.
+// Wio-E5 response:  +TEST: RSSI:-80 SNR:10   (or comma-separated variant)
 static void parse_rssi_snr(RadioQuality& rq) {
     rq.rssi = 0;
     rq.snr  = 0;
 
     const char* p = strstr(s_buf, "RSSI:");
-    if (p) {
-        p += 5;               // skip "RSSI:"
-        rq.rssi = atoi(p);   // handles leading minus sign
-    }
+    if (p) { p += 5; rq.rssi = atoi(p); }
 
     p = strstr(s_buf, "SNR:");
-    if (p) {
-        p += 4;               // skip "SNR:"
-        rq.snr = atoi(p);
-    }
+    if (p) { p += 4; rq.snr = atoi(p); }
 }
 
 // ── Hex decode ───────────────────────────────────────────────────────────────
@@ -175,28 +140,32 @@ static size_t hex_to_bytes(const char* hex, uint8_t* out, size_t max_len) {
     return n;
 }
 
-// ── Unpack telemetry from binary buffer ──────────────────────────────────────
-static void unpack_telemetry(const uint8_t* buf, TelemetryData& t) {
-    size_t pos = 0;
-    memcpy(&t.time_ms,           &buf[pos], 4); pos += 4;
-    memcpy(&t.altitude,          &buf[pos], 4); pos += 4;
-    memcpy(&t.vertical_velocity, &buf[pos], 4); pos += 4;
-    memcpy(&t.temperature,       &buf[pos], 4); pos += 4;
-    memcpy(&t.pressure,          &buf[pos], 4); pos += 4;
-    memcpy(&t.ax,                &buf[pos], 4); pos += 4;
-    memcpy(&t.ay,                &buf[pos], 4); pos += 4;
-    memcpy(&t.az,                &buf[pos], 4); pos += 4;
-    memcpy(&t.voltage,           &buf[pos], 4); pos += 4;
-    // GPS fields
-    memcpy(&t.time_now,          &buf[pos], 2); pos += 2;
-    memcpy(&t.latitude,          &buf[pos], 4); pos += 4;
-    memcpy(&t.longitude,         &buf[pos], 4); pos += 4;
-    memcpy(&t.speed_gps,         &buf[pos], 4); pos += 4;
-    memcpy(&t.heading_gps,       &buf[pos], 2); pos += 2;
-    t.flags = buf[pos];
+// ── Bytes → decimal string (big-endian bytes → zero-padded decimal) ──────────
+// For each byte (MSB first): accumulator = accumulator × 256 + byte
+// Accumulator is stored as a fixed-width array of decimal digits.
+static void bytes_to_decimal(const uint8_t* in, int n_bytes,
+                             char* out, int n_digits) {
+    uint8_t digs[60];
+    memset(digs, 0, sizeof(digs));
+
+    for (int b = 0; b < n_bytes; b++) {
+        // Multiply accumulator by 256 and add in[b]
+        uint16_t carry = in[b];
+        for (int d = n_digits - 1; d >= 0; d--) {
+            uint16_t val = (uint16_t)digs[d] * 256 + carry;
+            digs[d] = val % 10;
+            carry   = val / 10;
+        }
+        // Overflow carry is silently dropped (should not happen with valid data)
+    }
+
+    for (int i = 0; i < n_digits; i++) {
+        out[i] = '0' + digs[i];
+    }
+    out[n_digits] = '\0';
 }
 
-// ── Big-number arithmetic: 60-digit decimal → 25-byte big-endian ─────────────
+// ── Decimal string → bytes (big-endian, repeated /256) ───────────────────────
 static uint8_t divmod256(uint8_t* digits, int len) {
     uint16_t remainder = 0;
     for (int i = 0; i < len; i++) {
@@ -207,19 +176,20 @@ static uint8_t divmod256(uint8_t* digits, int len) {
     return (uint8_t)remainder;
 }
 
-static void decimal_to_bytes(const char* decimal, uint8_t* out, int out_len) {
+static void decimal_to_bytes(const char* decimal, int n_digits,
+                             uint8_t* out, int n_bytes) {
     uint8_t digs[60];
-    for (int i = 0; i < OUTPUT_DIGITS; i++) {
+    for (int i = 0; i < n_digits; i++) {
         digs[i] = decimal[i] - '0';
     }
 
     uint8_t tmp[25];
-    for (int b = 0; b < out_len; b++) {
-        tmp[b] = divmod256(digs, OUTPUT_DIGITS);
+    for (int b = 0; b < n_bytes; b++) {
+        tmp[b] = divmod256(digs, n_digits);
     }
 
-    for (int i = 0; i < out_len; i++) {
-        out[i] = tmp[out_len - 1 - i];
+    for (int i = 0; i < n_bytes; i++) {
+        out[i] = tmp[n_bytes - 1 - i];
     }
 }
 
@@ -230,94 +200,72 @@ static int32_t clamp_i(int32_t v, int32_t lo, int32_t hi) {
     return v;
 }
 
-// ── Encode telemetry + radio quality → 60-digit decimal string ──────────────
-// Format matches ground-station visualization expectations:
-//   Time(4) + Lat(9) + Lon(9) + Speed(3) + Heading(3) +
-//   Alt(5) + Voltage(3) + RSSI(3) + Gain(3) + AccX(6) + AccY(6) + AccZ(6)
-//   = 60 digits total
+// ── Parse 54-digit decimal → TelemetryData ───────────────────────────────────
 //
-// RSSI encoding  (3 digits, 000–999):
-//   Stored as |RSSI|.  e.g. -80 dBm → 080.
-//   Visualization decodes: data.RSSI = stof(getNext(3))  → 80
+// LoRa digit layout (54 total):
+//   [ 0.. 5]  Time       (6)  HHMMSS
+//   [ 6..14]  Latitude   (9)  (lat × 1e5) + 1e8
+//   [15..23]  Longitude  (9)  (lon × 1e5) + 1e8
+//   [24..26]  Speed      (3)  speed × 10
+//   [27..29]  Heading    (3)  heading
+//   [30..35]  Height     (6)  altitude × 10
+//   [36..38]  Voltage    (3)  voltage × 100
+//   [39..43]  Accel X    (5)  (ax × 100) + 10000
+//   [44..48]  Accel Y    (5)  (ay × 100) + 10000
+//   [49..53]  Accel Z    (5)  (az × 100) + 10000
 //
-// Gain / SNR encoding  (3 digits, 000–999):
-//   Stored as SNR × 10.  e.g. 12 dB → 120.
-//   Visualization decodes: data.Gain = stof(getNext(3)) / 10.0 → 12.0
+static void parse_telemetry(const char* dec54, TelemetryData& t) {
+    // Helper: extract N chars from `dec54` at offset `pos`, return as long
+    auto getInt = [&](int pos, int len) -> int32_t {
+        char tmp[10];
+        memcpy(tmp, &dec54[pos], len);
+        tmp[len] = '\0';
+        return atol(tmp);
+    };
+
+    t.time_hhmmss = getInt(0, 6);
+    t.latitude    = (getInt(6, 9) - 100000000L) / 100000.0f;
+    t.longitude   = (getInt(15, 9) - 100000000L) / 100000.0f;
+    t.speed_gps   = getInt(24, 3) / 10.0f;
+    t.heading_gps = (int)getInt(27, 3);
+    t.altitude    = getInt(30, 6) / 10.0f;
+    t.voltage     = getInt(36, 3) / 100.0f;
+    t.ax          = (getInt(39, 5) - 10000) / 100.0f;
+    t.ay          = (getInt(44, 5) - 10000) / 100.0f;
+    t.az          = (getInt(49, 5) - 10000) / 100.0f;
+}
+
+// ── Build 60-digit PC output string ──────────────────────────────────────────
 //
-static void encode_to_decimal(const TelemetryData& t,
-                              const RadioQuality& rq,
-                              char* out60) {
-    int pos = 0;
+// PC digit layout (60 total):
+//   [ 0.. 5]  Time       (6)  — pass through from LoRa
+//   [ 6..14]  Latitude   (9)  — pass through
+//   [15..23]  Longitude  (9)  — pass through
+//   [24..26]  Speed      (3)  — pass through
+//   [27..29]  Heading    (3)  — pass through
+//   [30..35]  Height     (6)  — pass through
+//   [36..38]  Voltage    (3)  — pass through
+//   [39..41]  RSSI       (3)  — |RSSI| in dBm (inserted by GS)
+//   [42..44]  SNR/Gain   (3)  — (SNR × 10) + 200  (inserted by GS)
+//   [45..49]  Accel X    (5)  — pass through from LoRa digits [39..43]
+//   [50..54]  Accel Y    (5)  — pass through from LoRa digits [44..48]
+//   [55..59]  Accel Z    (5)  — pass through from LoRa digits [49..53]
+//
+static void build_pc_output(const char* dec54, const RadioQuality& rq,
+                            char* out60) {
+    // Copy first 39 digits (Time through Voltage) verbatim
+    memcpy(&out60[0], &dec54[0], 39);
 
-    // Time (4 digits): GNSS MMSS directly
-    int32_t time_val = clamp_i((int32_t)t.time_now, 0, 9999);
-    sprintf(&out60[pos], "%04ld", (long)time_val);
-    pos += 4;
-
-    // Latitude (9 digits): (lat × 1e5) + 1e8
-    {
-        int32_t lat_enc = clamp_i((int32_t)(t.latitude * 100000.0f + 100000000L), 0, 199999999L);
-        sprintf(&out60[pos], "%09ld", (long)lat_enc);
-        pos += 9;
-    }
-
-    // Longitude (9 digits): (lon × 1e5) + 1e8
-    {
-        int32_t lon_enc = clamp_i((int32_t)(t.longitude * 100000.0f + 100000000L), 0, 199999999L);
-        sprintf(&out60[pos], "%09ld", (long)lon_enc);
-        pos += 9;
-    }
-
-    // Speed GPS (3 digits): m/s × 10
-    int32_t spd_enc = clamp_i((int32_t)(t.speed_gps * 10.0f), 0, 999);
-    sprintf(&out60[pos], "%03ld", (long)spd_enc);
-    pos += 3;
-
-    // Heading GPS (3 digits): degrees 0–359
-    int32_t hdg_enc = clamp_i((int32_t)t.heading_gps, 0, 999);
-    sprintf(&out60[pos], "%03ld", (long)hdg_enc);
-    pos += 3;
-
-    // Altitude (5 digits): Kalman-filtered altitude in metres
-    int32_t alt_enc = clamp_i((int32_t)t.altitude, 0, 99999);
-    sprintf(&out60[pos], "%05ld", (long)alt_enc);
-    pos += 5;
-
-    // Voltage (3 digits): V × 100
-    int32_t volt_enc = clamp_i((int32_t)(t.voltage * 100.0f), 0, 999);
-    sprintf(&out60[pos], "%03ld", (long)volt_enc);
-    pos += 3;
-
-    // RSSI (3 digits): |RSSI| in dBm
-    // RSSI is negative (e.g. -80), store as positive absolute value
+    // Insert RSSI (3 digits): |RSSI| in dBm
     int32_t rssi_enc = clamp_i((int32_t)abs(rq.rssi), 0, 999);
-    sprintf(&out60[pos], "%03ld", (long)rssi_enc);
-    pos += 3;
+    sprintf(&out60[39], "%03ld", (long)rssi_enc);
 
-    // Gain / SNR (3 digits): SNR × 10
-    // SNR can be negative in poor conditions (-20 to +15 dB typical).
-    // Offset by +200 so it always fits as a positive 3-digit number:
-    //   -20 dB → (-200 + 200) = 000,  +15 dB → (150 + 200) = 350
-    // Visualization decodes: data.Gain = stof(getNext(3)) / 10.0
-    // To get true SNR on the decode side: SNR = (Gain * 10 - 200) / 10
+    // Insert SNR (3 digits): (SNR × 10) + 200
     int32_t snr_enc = clamp_i((int32_t)(rq.snr * 10 + 200), 0, 999);
-    sprintf(&out60[pos], "%03ld", (long)snr_enc);
-    pos += 3;
+    sprintf(&out60[42], "%03ld", (long)snr_enc);
 
-    // Accel X (6 digits): (m/s² + 100) × 1000
-    int32_t ax_enc = clamp_i((int32_t)((t.ax + 100.0f) * 1000.0f), 0, 199999);
-    sprintf(&out60[pos], "%06ld", (long)ax_enc);
-    pos += 6;
-
-    // Accel Y (6 digits)
-    int32_t ay_enc = clamp_i((int32_t)((t.ay + 100.0f) * 1000.0f), 0, 199999);
-    sprintf(&out60[pos], "%06ld", (long)ay_enc);
-    pos += 6;
-
-    // Accel Z (6 digits)
-    int32_t az_enc = clamp_i((int32_t)((t.az + 100.0f) * 1000.0f), 0, 199999);
-    sprintf(&out60[pos], "%06ld", (long)az_enc);
-    pos += 6;
+    // Copy last 15 digits (Accel X/Y/Z) from LoRa positions [39..53]
+    memcpy(&out60[45], &dec54[39], 15);
 
     out60[OUTPUT_DIGITS] = '\0';
 }
@@ -342,32 +290,24 @@ static bool lora_init_ground() {
 }
 
 // ── Receive one LoRa packet + radio quality ──────────────────────────────────
-// Returns number of decoded payload bytes (0 on timeout/failure).
-// rq is populated with RSSI and SNR from the module's AT response.
 static size_t lora_receive_packet(uint8_t* out_data, size_t max_len,
                                    RadioQuality& rq,
                                    unsigned long rx_timeout_ms) {
     rq.rssi = 0;
     rq.snr  = 0;
 
-    // Enter RX mode
     send_at("AT+TEST=RXLRPKT\r\n");
     wait_for("+TEST: RXLRPKT", 1000);
 
-    // Wait for an incoming packet
     if (!wait_for("+TEST: RX", rx_timeout_ms)) {
         return 0;
     }
 
-    // The "+TEST: RX" line is now in s_buf, but the RSSI/SNR line
-    // is sent by the module shortly after.  Keep reading for 300 ms
-    // to capture it.
+    // Capture trailing RSSI/SNR line
     drain_extra(300);
-
-    // ── Parse RSSI / SNR from the full response ──────────────────────────
     parse_rssi_snr(rq);
 
-    // ── Extract hex payload from between the first pair of quotes ────────
+    // Extract hex payload
     char* start = strchr(s_buf, '"');
     if (!start) return 0;
     start++;
@@ -416,44 +356,42 @@ void setup() {
 }
 
 void loop() {
-    // 1. Receive LoRa packet + radio quality (blocks up to 10s)
+    // 1. Receive LoRa packet + radio quality
     uint8_t      rx_buf[128];
     RadioQuality rq;
     size_t       rx_len = lora_receive_packet(rx_buf, sizeof(rx_buf), rq, 10000);
 
-    if (rx_len < TELEM_PACKET_SIZE) {
+    if (rx_len < (size_t)TELEM_PACKET_SIZE) {
 #if DEBUG_MODE
         Serial.println(F("[GND] RX timeout or short packet"));
 #endif
         return;
     }
 
-    // LED blink to indicate packet received
-    digitalWrite(LED_BUILTIN, LOW);
+    digitalWrite(LED_BUILTIN, LOW);     // blink on packet
 
-    // 2. Unpack binary telemetry
-    TelemetryData telem;
-    unpack_telemetry(rx_buf, telem);
+    // 2. Decode 23 bytes → 54-digit decimal string
+    char dec54[TELEM_DIGITS + 1];
+    bytes_to_decimal(rx_buf, TELEM_PACKET_SIZE, dec54, TELEM_DIGITS);
 
 #if DEBUG_MODE
-    // ── DEBUG MODE: human-readable output ─────────────────────────────────
-    Serial.println(F("──────────────────────────────"));
-    Serial.print(F("[GND] Time: "));    Serial.print(telem.time_ms);
-    Serial.print(F(" ms  GNSS: "));     Serial.print(telem.time_now);
-    Serial.print(F("  Alt: "));         Serial.print(telem.altitude, 1);
-    Serial.print(F(" m  VVel: "));      Serial.print(telem.vertical_velocity, 2);
-    Serial.println(F(" m/s"));
+    // 3a. DEBUG: parse and print human-readable
+    TelemetryData telem;
+    parse_telemetry(dec54, telem);
 
-    Serial.print(F("[GND] Temp: "));    Serial.print(telem.temperature, 1);
-    Serial.print(F(" C  Pres: "));      Serial.print(telem.pressure, 1);
-    Serial.print(F(" hPa  Volt: "));    Serial.print(telem.voltage, 2);
-    Serial.println(F(" V"));
+    Serial.println(F("──────────────────────────────"));
+    Serial.print(F("[GND] GNSS Time: "));  Serial.print(telem.time_hhmmss);
+    Serial.print(F("  Alt: "));            Serial.print(telem.altitude, 1);
+    Serial.println(F(" m"));
 
     Serial.print(F("[GND] GPS: "));
-    Serial.print(telem.latitude, 5);    Serial.print(F(", "));
-    Serial.print(telem.longitude, 5);   Serial.print(F("  Spd: "));
-    Serial.print(telem.speed_gps, 1);   Serial.print(F(" m/s  Hdg: "));
+    Serial.print(telem.latitude, 5);       Serial.print(F(", "));
+    Serial.print(telem.longitude, 5);      Serial.print(F("  Spd: "));
+    Serial.print(telem.speed_gps, 1);      Serial.print(F(" m/s  Hdg: "));
     Serial.println(telem.heading_gps);
+
+    Serial.print(F("[GND] Volt: "));       Serial.print(telem.voltage, 2);
+    Serial.println(F(" V"));
 
     Serial.print(F("[GND] Accel: "));
     Serial.print(telem.ax, 2); Serial.print(F(", "));
@@ -466,20 +404,16 @@ void loop() {
     Serial.print(rq.snr);
     Serial.println(F(" dB"));
 
-    Serial.print(F("[GND] Flags: BMP="));
-    Serial.print((telem.flags & 0x01) ? F("OK") : F("FAIL"));
-    Serial.print(F("  IMU="));
-    Serial.print((telem.flags & 0x02) ? F("OK") : F("FAIL"));
-    Serial.print(F("  GNSS="));
-    Serial.println((telem.flags & 0x04) ? F("OK") : F("FAIL"));
+    Serial.print(F("[GND] Raw 54: "));
+    Serial.println(dec54);
 
 #else
-    // ── FLIGHT MODE: 25-byte binary for simple-terminal-visualization ─────
-    char decimal[OUTPUT_DIGITS + 1];
-    encode_to_decimal(telem, rq, decimal);
+    // 3b. FLIGHT: build 60-digit string with RSSI/SNR → 25-byte binary → PC
+    char dec60[OUTPUT_DIGITS + 1];
+    build_pc_output(dec54, rq, dec60);
 
     uint8_t output[OUTPUT_BYTES];
-    decimal_to_bytes(decimal, output, OUTPUT_BYTES);
+    decimal_to_bytes(dec60, OUTPUT_DIGITS, output, OUTPUT_BYTES);
 
     Serial.write(output, OUTPUT_BYTES);
     Serial.flush();

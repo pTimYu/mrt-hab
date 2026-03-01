@@ -30,8 +30,8 @@ struct DataSet {
     float gx, gy, gz;       // Angular rate (°/s)
 
     // ── GPS ───────────────────────────────────────────────────────────────
-    bool  gps;              // False if at least one data wrong    
-    int   time_now;         // Current time, only have minutes and seconds
+    bool  gps;              // False if at least one data wrong
+    int   time_now;         // Current time HHMMSS from GNSS (6 digits)
     float latitude;         // °
     float longitude;        // °
     float gps_altitude;     // m (MSL)
