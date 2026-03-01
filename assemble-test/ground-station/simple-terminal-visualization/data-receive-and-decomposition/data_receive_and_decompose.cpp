@@ -39,41 +39,30 @@ std::string bytesToDecimal(unsigned char* data, int len) {
 }
 
 void mapToDataSet(std::string fullDecimal, DataSet& data) {
-    // 1. Ensure the string is exactly 60 digits (left-pad with zeros if needed)
     const int totalExpected = 60;
     if (fullDecimal.length() < totalExpected) {
         fullDecimal.insert(0, totalExpected - fullDecimal.length(), '0');
     }
 
-    // 2. Define the lengths provided in your 'digits' list
-    // indices: 0  1  2  3  4  5  6  7  8  9  10 11
-    // digits: [4, 9, 9, 3, 3, 5, 3, 3, 3, 6, 6, 6]
-
     int pos = 0;
-
-    // Helper lambda to extract a substring and move the pointer
     auto getNext = [&](int len) {
         std::string sub = fullDecimal.substr(pos, len);
         pos += len;
         return sub;
     };
 
-    // 3. Map string segments to Struct fields
-    // Use std::stoi for int and std::stof for float
-    
-    data.time        = std::stoi(getNext(4));  // 4 digits
-    data.latitude    = std::stof(getNext(9));  // 9 digits
-    data.longitude   = std::stof(getNext(9));  // 9 digits
-    data.speed_gps   = std::stof(getNext(3));  // 3 digits
-    data.heading_gps = std::stoi(getNext(3));  // 3 digits
-    data.altitude    = std::stoi(getNext(5));  // 5 digits
-    data.voltage     = std::stof(getNext(3));  // 3 digits
-    data.RSSI        = std::stof(getNext(3));  // 3 digits
-    data.Gain        = std::stof(getNext(3));  // 3 digits
-    data.accel_x     = std::stof(getNext(6));  // 6 digits
-    data.accel_y     = std::stof(getNext(6));  // 6 digits
-    data.accel_z     = std::stof(getNext(6));  // 6 digits
-
+    data.time        = std::stoi(getNext(4));   // MMSS or HHMM
+    data.latitude    = std::stof(getNext(9)) / 1e6f;  // restore degrees
+    data.longitude   = std::stof(getNext(9)) / 1e6f;
+    data.speed_gps   = std::stof(getNext(3)) / 10.0f; // restore m/s
+    data.heading_gps = std::stoi(getNext(3));
+    data.altitude    = std::stoi(getNext(5));           // metres, integer
+    data.voltage     = std::stof(getNext(3)) / 100.0f; // restore V
+    data.RSSI        = std::stof(getNext(3));
+    data.Gain        = std::stof(getNext(3)) / 10.0f;
+    data.accel_x     = (std::stof(getNext(6)) - 100000.0f) / 1000.0f;  // restore m/s²
+    data.accel_y     = (std::stof(getNext(6)) - 100000.0f) / 1000.0f;
+    data.accel_z     = (std::stof(getNext(6)) - 100000.0f) / 1000.0f;
 }
 
 bool data_receive_and_decompose(DataSet& data){
