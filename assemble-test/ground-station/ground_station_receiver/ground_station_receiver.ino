@@ -7,6 +7,10 @@
 // Receives 53-byte binary LoRa telemetry packets from the flight computer,
 // unpacks the data, and outputs it over hardware Serial (USB).
 //
+// RSSI and SNR are measured locally by the ground station's LoRa module
+// on each received packet.  They are encoded into the 60-digit output
+// for the simple-terminal-visualization.
+//
 // Output mode controlled by DEBUG_MODE:
 //   DEBUG_MODE 1 → human-readable text (for Arduino Serial Monitor)
 //   DEBUG_MODE 0 → raw 25-byte binary  (for simple-terminal-visualization)
@@ -78,30 +82,83 @@ struct TelemetryData {
     uint8_t flags;
 };
 
+// ── Ground-station radio quality (measured locally, NOT from FC packet) ──────
+struct RadioQuality {
+    int rssi;       // dBm (negative, e.g. -80)
+    int snr;        // dB  (e.g. 10)
+};
+
 // ── AT command helpers ───────────────────────────────────────────────────────
 static char s_buf[384];
+static int  s_buf_len = 0;
 
 static void send_at(const char* cmd) {
     loraSerial.print(cmd);
 }
 
+// Block until `keyword` appears in the module response or `timeout` expires.
+// The full response is captured in s_buf for later parsing.
 static bool wait_for(const char* keyword, unsigned long timeout) {
     unsigned long start = millis();
-    int idx = 0;
+    s_buf_len = 0;
     memset(s_buf, 0, sizeof(s_buf));
 
     while (millis() - start < timeout) {
         while (loraSerial.available()) {
-            if (idx < (int)(sizeof(s_buf) - 1)) {
-                s_buf[idx++] = (char)loraSerial.read();
+            if (s_buf_len < (int)(sizeof(s_buf) - 1)) {
+                s_buf[s_buf_len++] = (char)loraSerial.read();
                 delay(2);
             } else {
-                loraSerial.read();
+                loraSerial.read();  // discard overflow
             }
         }
         if (strstr(s_buf, keyword)) return true;
     }
     return false;
+}
+
+// Continue reading bytes into s_buf (without clearing) for up to `extra_ms`.
+// The Wio-E5 sends the RSSI/SNR line shortly after the RX payload line.
+// This gives the module time to finish transmitting those trailing fields.
+static void drain_extra(unsigned long extra_ms) {
+    unsigned long start = millis();
+    while (millis() - start < extra_ms) {
+        while (loraSerial.available()) {
+            if (s_buf_len < (int)(sizeof(s_buf) - 1)) {
+                s_buf[s_buf_len++] = (char)loraSerial.read();
+                delay(2);
+            } else {
+                loraSerial.read();
+            }
+        }
+    }
+    s_buf[s_buf_len] = '\0';
+}
+
+// ── RSSI / SNR parser ────────────────────────────────────────────────────────
+// Wio-E5 response after receiving a packet:
+//   +TEST: RX "<hex>"
+//   +TEST: RSSI:-80 SNR:10
+//
+// Some firmware versions use commas:
+//   +TEST: RX "<hex>", RSSI:-80, SNR:10
+//
+// Scans s_buf for "RSSI:" and "SNR:" and extracts the integer values.
+static void parse_rssi_snr(RadioQuality& rq) {
+    rq.rssi = 0;
+    rq.snr  = 0;
+
+    const char* p = strstr(s_buf, "RSSI:");
+    if (p) {
+        p += 5;               // skip "RSSI:"
+        rq.rssi = atoi(p);   // handles leading minus sign
+    }
+
+    p = strstr(s_buf, "SNR:");
+    if (p) {
+        p += 4;               // skip "SNR:"
+        rq.snr = atoi(p);
+    }
 }
 
 // ── Hex decode ───────────────────────────────────────────────────────────────
@@ -173,35 +230,40 @@ static int32_t clamp_i(int32_t v, int32_t lo, int32_t hi) {
     return v;
 }
 
-// ── Encode telemetry → 60-digit decimal string ──────────────────────────────
+// ── Encode telemetry + radio quality → 60-digit decimal string ──────────────
 // Format matches ground-station visualization expectations:
 //   Time(4) + Lat(9) + Lon(9) + Speed(3) + Heading(3) +
 //   Alt(5) + Voltage(3) + RSSI(3) + Gain(3) + AccX(6) + AccY(6) + AccZ(6)
 //   = 60 digits total
-static void encode_to_decimal(const TelemetryData& t, char* out60) {
+//
+// RSSI encoding  (3 digits, 000–999):
+//   Stored as |RSSI|.  e.g. -80 dBm → 080.
+//   Visualization decodes: data.RSSI = stof(getNext(3))  → 80
+//
+// Gain / SNR encoding  (3 digits, 000–999):
+//   Stored as SNR × 10.  e.g. 12 dB → 120.
+//   Visualization decodes: data.Gain = stof(getNext(3)) / 10.0 → 12.0
+//
+static void encode_to_decimal(const TelemetryData& t,
+                              const RadioQuality& rq,
+                              char* out60) {
     int pos = 0;
 
     // Time (4 digits): GNSS MMSS directly
-    // time_now is already in MMSS format from the flight computer
     int32_t time_val = clamp_i((int32_t)t.time_now, 0, 9999);
     sprintf(&out60[pos], "%04ld", (long)time_val);
     pos += 4;
 
-    // Latitude (9 digits): encode as N/S + degrees × 100000
-    // Format: S_DDD_DDDDD where S=0 for N, S=1 for S
-    // Offset by 1e8 so it's always positive (matches ground station decode)
+    // Latitude (9 digits): (lat × 1e5) + 1e8
     {
-        float lat = t.latitude;
-        // Encode: (lat * 1e5) + 1e8  → always positive 9-digit number
-        int32_t lat_enc = clamp_i((int32_t)(lat * 100000.0f + 100000000L), 0, 199999999L);
+        int32_t lat_enc = clamp_i((int32_t)(t.latitude * 100000.0f + 100000000L), 0, 199999999L);
         sprintf(&out60[pos], "%09ld", (long)lat_enc);
         pos += 9;
     }
 
-    // Longitude (9 digits): same encoding as latitude
+    // Longitude (9 digits): (lon × 1e5) + 1e8
     {
-        float lon = t.longitude;
-        int32_t lon_enc = clamp_i((int32_t)(lon * 100000.0f + 100000000L), 0, 199999999L);
+        int32_t lon_enc = clamp_i((int32_t)(t.longitude * 100000.0f + 100000000L), 0, 199999999L);
         sprintf(&out60[pos], "%09ld", (long)lon_enc);
         pos += 9;
     }
@@ -216,7 +278,7 @@ static void encode_to_decimal(const TelemetryData& t, char* out60) {
     sprintf(&out60[pos], "%03ld", (long)hdg_enc);
     pos += 3;
 
-    // Altitude (5 digits): Kalman-filtered altitude in metres (integer)
+    // Altitude (5 digits): Kalman-filtered altitude in metres
     int32_t alt_enc = clamp_i((int32_t)t.altitude, 0, 99999);
     sprintf(&out60[pos], "%05ld", (long)alt_enc);
     pos += 5;
@@ -226,12 +288,20 @@ static void encode_to_decimal(const TelemetryData& t, char* out60) {
     sprintf(&out60[pos], "%03ld", (long)volt_enc);
     pos += 3;
 
-    // RSSI (3 digits): not available from flight computer, send 0
-    sprintf(&out60[pos], "%03d", 0);
+    // RSSI (3 digits): |RSSI| in dBm
+    // RSSI is negative (e.g. -80), store as positive absolute value
+    int32_t rssi_enc = clamp_i((int32_t)abs(rq.rssi), 0, 999);
+    sprintf(&out60[pos], "%03ld", (long)rssi_enc);
     pos += 3;
 
-    // Gain (3 digits): not available from flight computer, send 0
-    sprintf(&out60[pos], "%03d", 0);
+    // Gain / SNR (3 digits): SNR × 10
+    // SNR can be negative in poor conditions (-20 to +15 dB typical).
+    // Offset by +200 so it always fits as a positive 3-digit number:
+    //   -20 dB → (-200 + 200) = 000,  +15 dB → (150 + 200) = 350
+    // Visualization decodes: data.Gain = stof(getNext(3)) / 10.0
+    // To get true SNR on the decode side: SNR = (Gain * 10 - 200) / 10
+    int32_t snr_enc = clamp_i((int32_t)(rq.snr * 10 + 200), 0, 999);
+    sprintf(&out60[pos], "%03ld", (long)snr_enc);
     pos += 3;
 
     // Accel X (6 digits): (m/s² + 100) × 1000
@@ -271,16 +341,33 @@ static bool lora_init_ground() {
     return true;
 }
 
-// ── Receive one LoRa packet ──────────────────────────────────────────────────
+// ── Receive one LoRa packet + radio quality ──────────────────────────────────
+// Returns number of decoded payload bytes (0 on timeout/failure).
+// rq is populated with RSSI and SNR from the module's AT response.
 static size_t lora_receive_packet(uint8_t* out_data, size_t max_len,
+                                   RadioQuality& rq,
                                    unsigned long rx_timeout_ms) {
+    rq.rssi = 0;
+    rq.snr  = 0;
+
+    // Enter RX mode
     send_at("AT+TEST=RXLRPKT\r\n");
     wait_for("+TEST: RXLRPKT", 1000);
 
+    // Wait for an incoming packet
     if (!wait_for("+TEST: RX", rx_timeout_ms)) {
         return 0;
     }
 
+    // The "+TEST: RX" line is now in s_buf, but the RSSI/SNR line
+    // is sent by the module shortly after.  Keep reading for 300 ms
+    // to capture it.
+    drain_extra(300);
+
+    // ── Parse RSSI / SNR from the full response ──────────────────────────
+    parse_rssi_snr(rq);
+
+    // ── Extract hex payload from between the first pair of quotes ────────
     char* start = strchr(s_buf, '"');
     if (!start) return 0;
     start++;
@@ -329,9 +416,10 @@ void setup() {
 }
 
 void loop() {
-    // 1. Receive LoRa packet (blocks up to 10s)
-    uint8_t rx_buf[128];
-    size_t  rx_len = lora_receive_packet(rx_buf, sizeof(rx_buf), 10000);
+    // 1. Receive LoRa packet + radio quality (blocks up to 10s)
+    uint8_t      rx_buf[128];
+    RadioQuality rq;
+    size_t       rx_len = lora_receive_packet(rx_buf, sizeof(rx_buf), rq, 10000);
 
     if (rx_len < TELEM_PACKET_SIZE) {
 #if DEBUG_MODE
@@ -372,6 +460,12 @@ void loop() {
     Serial.print(telem.ay, 2); Serial.print(F(", "));
     Serial.print(telem.az, 2); Serial.println(F(" m/s2"));
 
+    Serial.print(F("[GND] Radio: RSSI="));
+    Serial.print(rq.rssi);
+    Serial.print(F(" dBm  SNR="));
+    Serial.print(rq.snr);
+    Serial.println(F(" dB"));
+
     Serial.print(F("[GND] Flags: BMP="));
     Serial.print((telem.flags & 0x01) ? F("OK") : F("FAIL"));
     Serial.print(F("  IMU="));
@@ -382,7 +476,7 @@ void loop() {
 #else
     // ── FLIGHT MODE: 25-byte binary for simple-terminal-visualization ─────
     char decimal[OUTPUT_DIGITS + 1];
-    encode_to_decimal(telem, decimal);
+    encode_to_decimal(telem, rq, decimal);
 
     uint8_t output[OUTPUT_BYTES];
     decimal_to_bytes(decimal, output, OUTPUT_BYTES);

@@ -51,27 +51,34 @@ void mapToDataSet(std::string fullDecimal, DataSet& data) {
         return sub;
     };
 
-    data.time        = std::stoi(getNext(4));   // MMSS or HHMM
-    data.latitude    = std::stof(getNext(9) - 1e8f) / 1e5f;  // restore degrees
-    data.longitude   = std::stof(getNext(9) - 1e8f) / 1e5f;
-    data.speed_gps   = std::stof(getNext(3)) / 10.0f; // restore m/s
+    data.time        = std::stoi(getNext(4));                            // MMSS
+    data.latitude    = (std::stof(getNext(9)) - 1e8f) / 1e5f;           // restore degrees
+    data.longitude   = (std::stof(getNext(9)) - 1e8f) / 1e5f;
+    data.speed_gps   = std::stof(getNext(3)) / 10.0f;                   // restore m/s
     data.heading_gps = std::stoi(getNext(3));
-    data.altitude    = std::stoi(getNext(5));           // metres, integer
-    data.voltage     = std::stof(getNext(3)) / 100.0f; // restore V
-    data.RSSI        = std::stof(getNext(3));
-    data.Gain        = std::stof(getNext(3)) / 10.0f;
-    data.accel_x     = (std::stof(getNext(6)) - 100000.0f) / 1000.0f;  // restore m/s²
+    data.altitude    = std::stoi(getNext(5));                            // metres, integer
+    data.voltage     = std::stof(getNext(3)) / 100.0f;                  // restore V
+
+    // RSSI: stored as |RSSI| in dBm (e.g. 080 → 80 dBm signal strength)
+    // Negate to get conventional dBm if desired, or keep as positive magnitude
+    data.RSSI        = -std::stof(getNext(3));                           // dBm (negative)
+
+    // Gain / SNR: stored as (SNR × 10 + 200)
+    // Reverse the offset: SNR = (encoded - 200) / 10.0
+    data.Gain        = (std::stof(getNext(3)) - 200.0f) / 10.0f;        // dB
+
+    data.accel_x     = (std::stof(getNext(6)) - 100000.0f) / 1000.0f;   // restore m/s²
     data.accel_y     = (std::stof(getNext(6)) - 100000.0f) / 1000.0f;
     data.accel_z     = (std::stof(getNext(6)) - 100000.0f) / 1000.0f;
 }
 
 bool data_receive_and_decompose(DataSet& data){
-    unsigned char received[received_bytes];
+    unsigned char received[RECEIVED_BYTES];
     // Read Bytes
-    if(serial.readBytes(received, received_bytes, 2000, 1000) < received_bytes){
+    if(serial.readBytes(received, RECEIVED_BYTES, 2000, 1000) < RECEIVED_BYTES){
         return false;
     }
-    std::string decimal = bytesToDecimal(received, received_bytes);
+    std::string decimal = bytesToDecimal(received, RECEIVED_BYTES);
     // Decomposition
     mapToDataSet(decimal, data);
     return true;
