@@ -3,7 +3,8 @@ CXX = g++
 CXXFLAGS = -Wall -I.
 SRCS = main.cpp \
        data-receive/serialib.cpp \
-       data-receive/data_receive.cpp
+       data-receive/data_receive.cpp \
+	   data-logging/data_logger.cpp
 TARGET = build/arduino_app
 
 # The build rule

@@ -2,9 +2,11 @@
 #include <string>
 #include <vector>
 #include <cstdio>
+#include <csignal>
 
 #include "data-receive/data_receive.h"
 #include "data-receive/serialib.h"
+#include "data-logging/data_logger.h"
 
 // For Sleep/usleep
 #if defined(_WIN32) || defined(_WIN64)
@@ -17,6 +19,15 @@
 
 serialib serial;
 DataSet received_data;
+DataLogger logger;
+
+// ── Ctrl+C handler — flush and close file before exit ────────────────────────
+static volatile bool running = true;
+
+static void signal_handler(int sig) {
+    (void)sig;
+    running = false;
+}
 
 // Scan common serial port names and return the first one that opens
 std::string findArduinoPort() {
@@ -46,6 +57,9 @@ std::string findArduinoPort() {
 }
 
 int main() {
+    // Register Ctrl+C handler
+    std::signal(SIGINT, signal_handler);
+
     // --- Step 1: Detect the port ---
     std::string detectedPort = findArduinoPort();
 
@@ -62,12 +76,26 @@ int main() {
 
     std::cout << "Connected to Arduino on " << detectedPort << std::endl;
 
-    // --- Step 3: Main data loop ---
-    while (true) {
-        if (data_receive(received_data)) {
-            std::cout << "--- Current Data Set ---" << std::endl;
+    // --- Step 3: Open log file ---
+    if (!logger.open()) {
+        std::cerr << "Warning: Could not open log file. Data will not be saved." << std::endl;
+    } else {
+        std::cout << "Logging to: " << logger.filename() << std::endl;
+    }
 
-            // Time as HH:MM:SS
+    // --- Step 4: Main data loop ---
+    int packet_count = 0;
+
+    while (running) {
+        if (data_receive(received_data)) {
+            packet_count++;
+
+            // Save to file
+            logger.log(received_data);
+
+            // Display in terminal
+            std::cout << "--- Packet #" << packet_count << " ---" << std::endl;
+
             int t  = received_data.time;
             int hh = t / 10000;
             int mm = (t / 100) % 100;
@@ -91,6 +119,10 @@ int main() {
         }
     }
 
+    // --- Cleanup on Ctrl+C ---
+    std::cout << "\nShutting down... (" << packet_count << " packets logged)" << std::endl;
+    logger.close();
     serial.closeDevice();
+
     return 0;
 }
