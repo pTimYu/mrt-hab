@@ -10,7 +10,7 @@
 #define BMP_MOSI 11
 #define BMP_CS 10
 
-#define SEALEVELPRESSURE_HPA (1013.25)
+#define SEALEVELPRESSURE_HPA (1030)
 
 Adafruit_BMP3XX bmp;
 

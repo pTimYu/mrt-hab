@@ -95,9 +95,6 @@ void data_extractor(DataSet& data) {
         data.heading_gps = SENTINEL_HED;
     }
 
-    data.gps = gps_ok;                 // <── was missing: set the flag
+    data.gps = gps_ok;
 
-    // ── Radio ─────────────────────────────────────────────────────────────
-    // Placeholder — populate when LoRa RSSI/Gain is available.
-    // data.RSSI, data.Gain
 }

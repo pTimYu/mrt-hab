@@ -38,10 +38,6 @@ struct DataSet {
     float speed_gps;        // m/s
     int   heading_gps;      // degrees (0–359)
 
-    // ── Radio ─────────────────────────────────────────────────────────────
-    float RSSI;             // dBm
-    float Gain;             // dB
-
     // ── Kalman Filter Outputs ─────────────────────────────────────────────
     // Populated by kalman_update() in the main loop, NOT by data_extractor.
     float altitude;           // Filtered altitude (m, MSL)

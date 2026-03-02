@@ -17,7 +17,7 @@
 #endif
 
 // ── Flight detection thresholds ───────────────────────────────────────────────
-#define TAKEOFF_THRESHOLD   0.6f   // m/s  vertical velocity → triggers ASCENT
+#define TAKEOFF_THRESHOLD   1.0f   // m/s  vertical velocity → triggers ASCENT
 #define LANDING_THRESHOLD   20     // consecutive stationary counts → LANDED
 #define STANDBY_SETTLE_MS   20000  // ms after boot before takeoff detection starts
 
@@ -26,7 +26,7 @@
 
 // ── BMP390 ────────────────────────────────────────────────────────────────────
 #define BMP_I2C_ADDR        0x76
-#define BMP_SEA_LEVEL_HPA   1029.40f
+#define BMP_SEA_LEVEL_HPA   1030.0f
 
 // ── IMU (LSM6DSM) ─────────────────────────────────────────────────────────────
 #define IMU_I2C_ADDR        0x6B

@@ -251,13 +251,14 @@ void loop() {
 
     // ── 5. LoRa telemetry transmit ────────────────────────────────────────
     if (lora_ok && (now - last_lora_ms >= LORA_TX_INTERVAL_MS)) {
-        FlightStatus status = fc_get_status();
-        if (status != STNDBY) {
-            uint8_t packet[TELEM_PACKET_SIZE];
-            size_t  pkt_len = pack_telemetry(data_set, packet);
-            lora_send(packet, pkt_len);
-            last_lora_ms = now;
-        }
+        //FlightStatus status = fc_get_status();
+        //if (status != STNDBY) {
+        // Tim: I don't think we need to wait until fly
+        uint8_t packet[TELEM_PACKET_SIZE];
+        size_t  pkt_len = pack_telemetry(data_set, packet);
+        lora_send(packet, pkt_len);
+        last_lora_ms = now;
+        //}
     }
 
     delay(LOOP_DELAY_MS);

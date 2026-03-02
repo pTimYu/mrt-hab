@@ -163,11 +163,10 @@ void fc_update(DataSet& data) {
         case LANDED: Serial.print(F("LANDED")); break;
     }
     Serial.print(F("  ALT: "));  Serial.print(data.altitude, 2);
+    Serial.print(F("  ALT (BMP): "));  Serial.print(data.bmp_altitude, 2);
     Serial.print(F("  VVEL: ")); Serial.print(data.vertical_velocity, 3);
-    Serial.print(F("  GND: "));  Serial.print(s_ground_altitude, 2);
-    Serial.print(F("  T: "));    Serial.print(data.time);
-    Serial.print(F("  BMP: "));  Serial.print(data.bmp  ? F("OK") : F("FAIL"));
-    Serial.print(F("  IMU: "));  Serial.println(data.imu ? F("OK") : F("FAIL"));
+    Serial.print(F("  VACCEL: ")); Serial.print(data.az, 2);
+    Serial.print(F("  T: "));    Serial.println(data.time);
 #endif
 }
 

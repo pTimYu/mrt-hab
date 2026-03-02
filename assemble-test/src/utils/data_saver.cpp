@@ -82,10 +82,6 @@ bool data_saver_write(const DataSet& data) {
     logFile.print(data.speed_gps, 2);   logFile.print('\t');
     logFile.print(data.heading_gps);    logFile.print('\t');
 
-    // Radio
-    logFile.print(data.RSSI, 1);        logFile.print('\t');
-    logFile.print(data.Gain, 1);        logFile.print('\t');
-
     // Sensor health flags
     logFile.print(data.bmp  ? 1 : 0);  logFile.print('\t');
     logFile.print(data.imu  ? 1 : 0);  logFile.print('\t');
