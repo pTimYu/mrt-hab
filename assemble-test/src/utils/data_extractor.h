@@ -1,4 +1,5 @@
 #pragma once
+#include <stdint.h>
 
 // ── DataSet ───────────────────────────────────────────────────────────────────
 //
@@ -17,6 +18,8 @@ struct DataSet {
     // ── General ───────────────────────────────────────────────────────────
     int      time;          // Effective flight time (ms since takeoff)
     float    voltage;       // Battery voltage (V)
+    // This is stored by the flight_controller.cpp
+    uint8_t flight_status;  // 0=STNDBY 1=ASCENT 2=DESCNT 3=LANDED
 
     // ── BMP390 ────────────────────────────────────────────────────────────
     bool  bmp;              // true = read succeeded this cycle

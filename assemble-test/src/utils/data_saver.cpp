@@ -31,10 +31,10 @@ bool data_saver_init() {
     }
 
     // Write a header line so the file is human-readable after recovery
-    logFile.println(F("TIME\tTIME_NOW\tVOLT\tTEMP\tPRES\tBMP_ALT\tALT\tVVEL\t"
+    logFile.println(F("STATUS\tTIME\tTIME_NOW\tVOLT\tTEMP\tPRES\tBMP_ALT\tALT\tVVEL\t"
                       "AX\tAY\tAZ\tGX\tGY\tGZ\t"
                       "LAT\tLON\tGPS_ALT\tSPD\tHDG\t"
-                      "RSSI\tGAIN\tBMP_OK\tIMU_OK\tGNSS_OK"));
+                      "BMP_OK\tIMU_OK\tGNSS_OK"));
     logFile.flush();
     lastFlushMs = millis();
 
@@ -54,6 +54,7 @@ bool data_saver_write(const DataSet& data) {
     // on memory-constrained MCUs.
 
     // General
+    logFile.print(data.flight_status);  logFile.print('\t');
     logFile.print(data.time);           logFile.print('\t');
     logFile.print(data.time_now);       logFile.print('\t');
     logFile.print(data.voltage, 3);     logFile.print('\t');

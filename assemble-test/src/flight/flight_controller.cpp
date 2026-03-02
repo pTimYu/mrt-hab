@@ -168,6 +168,8 @@ void fc_update(DataSet& data) {
     Serial.print(F("  VACCEL: ")); Serial.print(data.az, 2);
     Serial.print(F("  T: "));    Serial.println(data.time);
 #endif
+
+    data.flight_status = (uint8_t)s_status;
 }
 
 FlightStatus fc_get_status() {
