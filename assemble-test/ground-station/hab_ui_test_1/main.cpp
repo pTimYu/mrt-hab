@@ -12,7 +12,8 @@ int main(int argc, char *argv[])
         &app,
         []() { QCoreApplication::exit(-1); },
         Qt::QueuedConnection);
-    engine.loadFromModule("hab_ui_test_1", "Main");
+    const QUrl url(QStringLiteral("qrc:/hab_ui_test_1/Main.qml"));
+    engine.load(url);
 
     return app.exec();
 }

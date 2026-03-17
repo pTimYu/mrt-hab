@@ -4,7 +4,7 @@ project(hab_ui_test_1 VERSION 0.1 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Quick)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Qml Quick)
 
 qt_standard_project_setup(REQUIRES 6.8)
 
@@ -14,6 +14,7 @@ qt_add_executable(apphab_ui_test_1
 
 qt_add_qml_module(apphab_ui_test_1
     URI hab_ui_test_1
+    VERSION 6.0
     QML_FILES
         Main.qml
 )
@@ -29,9 +30,7 @@ set_target_properties(apphab_ui_test_1 PROPERTIES
     WIN32_EXECUTABLE TRUE
 )
 
-target_link_libraries(apphab_ui_test_1
-    PRIVATE Qt6::Quick
-)
+target_link_libraries(apphab_ui_test_1 PRIVATE Qt6::Core Qt6::Gui Qt6::Qml Qt6::Quick)
 
 include(GNUInstallDirs)
 install(TARGETS apphab_ui_test_1
