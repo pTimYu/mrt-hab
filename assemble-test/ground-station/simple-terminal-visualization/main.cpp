@@ -56,6 +56,33 @@ std::string findArduinoPort() {
     return "";
 }
 
+// Scan and return all possible ports
+std::vector<std::string> findAllArduinoPorts() {
+    serialib tempSerial;
+    std::vector<std::string> portNames;
+    std::vector<std::string> allPorts;
+#if defined(_WIN32) || defined(_WIN64)
+    for (int i = 1; i <= 20; ++i)
+        portNames.push_back("\\\\.\\COM" + std::to_string(i));
+#else
+    for (int i = 0; i < 10; ++i) {
+        portNames.push_back("/dev/ttyACM" + std::to_string(i));
+        portNames.push_back("/dev/ttyUSB" + std::to_string(i));
+    }
+#endif
+
+    std::cout << "Scanning for Arduino..." << std::endl;
+
+    for (const std::string& port : portNames) {
+        if (tempSerial.openDevice(port.c_str(), 115200) == 1) {
+            SLEEP(2000);    // wait for Arduino to reboot
+            tempSerial.closeDevice();
+            allPorts.push_back(port);
+        }
+    }
+    return allPorts;
+}
+
 int main() {
     // Register Ctrl+C handler
     std::signal(SIGINT, signal_handler);
